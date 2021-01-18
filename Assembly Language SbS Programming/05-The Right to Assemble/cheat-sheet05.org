@@ -1,0 +1,51 @@
+* Capítulo 5 - The Right to Assemble
+
+** Endianness
+   Considere o valor hexadecimal =0x542037=, que também pode ser representado por =54 20 37H=
+
+   Uma arquitetura computacional que armazena o byte *menos significativo* de um valor multibyte no menor /offset/ é chamado
+   de /little endian/.
+
+   Uma arquitetura computacional que armazena o byte *mais significativo* de um valor multibyte no menor /offset/ é chamado
+   /big endian/.
+
+   | Big Endian            | Little Endian         |
+   |-----------------------+-----------------------|
+   | *Offset* increases -> | *Offset* increases -> |
+   | 00 01 02              | 00 01 02              |
+   | 54 20 37H             | 37 20 54H             |
+
+   Isto é, em sistemas /big endian/, um valor multibyte inicia com o seu byte *mais* significativo. Em sistemas /little endian/,
+   um valor multibyte inicia com o seu byte *menos* significativo.
+
+** Object Code and Linkers
+   Assemblers leem o seu arquivo de código-fonte e geram um arquivo de código-objeto contendo as instruções de máquina que a CPU
+   compreende, mais quaisquer dados que você definiu no código fonte.
+
+   Os arquivos objeto produzidos por assemblers modernos são algo em um passo intermediário entre código-fonte e um programa executável.
+   Esse passo intermediário é um tipo de arquivo binário chamado de /módulo objeto/. Esses arquivos não podem por si só serem executados
+   como programas. Um passo adicional, chamado de /linking/, é necessário para tornar arquivos objeto em arquivos executáveis.
+
+   Para processar vários módulos objeto em um único módulo executável, o linker deve primeiro construir um /index/ chamado de /symbol table/,
+   com uma entrada para cada item nomeado em cada módulo objeto que ele faz o link, com informação sobre qual nome (/symbol/) refere-se a qual
+   localização dentro do módulo. Uma vez que a symbol table está completa, o linker constrói uma imagem de como o programa executável será
+   arranjado na memória quando o sistema operacional fizer o carregamento dele. Essa imagem é então escrito no disco como o arquivo executável.
+
+   É permitido aos módulos objeto fazerem referência a símbolos em outros módulos objeto. Durante a fase de /assembly/, essas /referências externas/
+   são deixadas como lacunas a serem preenchidas depois. Conforme o linker constroi uma imagem do eventual arquivo executável, ele descobre onde todos
+   os símbolos estão localizados na imagem, e por isso pode preencher as lacunas das referências externas com os seus endereços reais.
+
+** Relocatability
+   Sistemas computacionais antigos como os sistemas 8080 executando CP/M-80 possuíam uma arquitetura de memória muito simples. Programas eram escritos
+   para serem carregados e executados em um endereço de memória física específico. Para CP/M, esse endereço era 100H. O programador podia assumir que
+   qualquer programa começaria no endereço 100H e continuaria a partir daí. Endereços de memória dos itens de dados e procedimentos eram endereços físicos
+   reais, e toda vez que o programa executava, os seus dados eram carregados e referenciados /precisamente/ no mesmo local de memória.
+
+   Isso tudo mudou com a chegada do 8086 e seus sistemas operacionais específicos como CP/M-86 e PC DOS. Melhoramentos na arquitetura Intel introduzidos
+   com o 8086 tornaram desnecessário para o programa ser montado (/assembled/) para executar em um endereço específico de memória. Todas as referências
+   dentro de um programa executável passaram a ser especificadas relativamente ao início do programa. Uma variável, por exemplo, não seria mais localizada
+   com certeza no endereço físico 02C7H na memória. Em vez disso, ela seria localizada com certeza em um /offset/ a partir o início do arquivo. Esse offset
+   seria sempre o mesmo; e porque todas as referências seriam relativas ao início do arquivo executável, não importaria mais onde o programa estaria localizado
+   na memória física ao ser executado.
+
+   Essa característica é chamada de /relocatability/, e lidar com isso é a grande parte do trabalho do linker.
