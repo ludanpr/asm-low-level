@@ -1,0 +1,224 @@
+* Capítulo 7 - Following Your Instructions
+
+** Instructions and Their Operands
+   O método mais geral de mover dados em /assembly/ é usando a instrução =MOV=. =MOV= pode mover um byte, palavra (16 bits), ou palavra dupla (32 bits) de
+   dados de um registrador para outro, de um registrador para memória ou da memória para um registrador. O que =MOV= não pode fazer é mover dados diretamente
+   de um endereço de memória para um outro endereço de memória.
+
+   O nome =MOV= é um pouco equivocado, uma vez que o que realmente acontece é que os dados são /copiados/ de uma origem para um destino.
+
+   Três tipos diferentes de dados podem ser usados como operandos: /dados de memória/, /dados de registrador/, e /dados imediatos/. A tabela a seguir mostra
+   alguns exemplos de instruções =MOV=.
+
+   | Instrução de Máquina | Operando Destino | Operando Fonte | Notas                                                              |
+   |----------------------+------------------+----------------+--------------------------------------------------------------------|
+   | MOV                  | EAX,             | 42H            | A fonte é um dado imediato                                         |
+   | MOV                  | EBX,             | EDI            | Ambos são dados de registrador de 32 bits                          |
+   | MOV                  | BX,              | CX             | Ambos são dados de registrador de 16 bits                          |
+   | MOV                  | DL,              | BH             | Ambos são dados de registrador de 8 bits                           |
+   | MOV                  | [EBP],           | EDI            | Destino é dado de memória de 32 bits no endereço armazenado em EBP |
+   | MOV                  | EDX,             | [ESI]          | Fonte é dado de memória de 32 bits no endereço armazenado em EDI   |
+
+
+   Antes de prosseguir, como um lembrete, um registrador possui o seu *byte menos significativo* à direita. Por exemplo:
+
+   MSB -------------- LSB
+   |         | AH | AL | 
+   |         |    AX   |
+   |        EAX        |
+
+   
+*** Immediate Data
+    A instrução =MOV EAX,42H= é um bom exemplo do uso do que é chamado de /dado imediato/, acessado através de um /modo de endereçamento/ chamado *endereçamento imediato*.
+    Esse nome vem do fato de que o item sendo endereçado é embutido dentro da própria instrução. A CPU não precisa ir a lugar nenhum para encontrar um dado imediato.
+
+*** Register Data
+    Dados armazenados dentro de um registrador de CPU são conhecidos como /dado de registrador/, e acessar dados de registrador diretamente é um modo de endereçamento chamado
+    de /endereçamento por registrador/. Exemplos:
+
+    #+BEGIN_SRC <ASM>
+    mov ebp,esi     ; 32-bit
+    mov bl,ch       ; 8-bit
+    add di,ax       ; 16-bit
+    #+END_SRC
+
+*** Memory Data
+    /Dados de memória/ são armazenados em algum lugar do sistema de memória que é "propriedade" do programa, em um endereço de memória de 32 bits (64 bits).
+
+    Com uma ou duas exceções importantes (as instruções de /string/), somente UM dos dois operandos de uma instrução pode especificar uma localização de memória. Em outras
+    palavras, você não pode mover um valor de memória diretamente para outro valor de memória.
+
+    Para especificar que você quer os dados no endereço de memória contido em um registrador, em vez dos dados em si no registrador, você usa colchetes em volta
+    do nome do registrador. Por exemplo, para mover a palavra de memória no endereço contido em EBX para o registrador EAX, você usaria a seguinte instrução:
+
+    =mov eax,[ebx]=
+
+    Também é possível especificar literais e o endereço em outros registradores para adição:
+
+    #+BEGIN_SRC <ASM>
+    mov eax,[ebx+16]
+    mov eax,[ebx+ecx]
+    #+END_SRC
+
+    O que está dentro dos colchetes é chamado de *endereço efetivo* (/effective address/) de um dado na memória, e existem regras que ditam o que é válido como um
+    endereço efetivo. Atualmente, dois registradores podem ser adicionados para formar um endereço efetivo, mas três ou mais não podem.
+
+*** Confusing Data and Its Address
+    Considere o exemplo a seguir:
+
+    #+BEGIN_SRC <ASM>
+    EatMsg: db "Eat at Joe's!"
+    ...
+    mov ecx,EatMsg
+    #+END_SRC
+
+    Essa instrução =MOV= copia o endereço de =EatMsg=, NÃO o que está armazenado em =EatMsg=, para o registrador. Em linguagem assembly, os nomes de variáveis representam
+    endereços, não os dados em si. Para obter os dados em si de =EatMsg=, usamos:
+
+    =mov ecx,[EatMsg]=
+
+    O que essa instrução faz é ir para o local de memória especificado pelo endereço representado por =EatMsg=, pega os primeiros 32 bits de dados desse endereço, e carrega
+    esses dados para =ECX= começando pelo byte menos significantes de =ECX=. Dados os conteúdos da variável, os dados copiados seriam os caracteres "E", "a", "t", e " ".
+    
+*** The Size of Memory Data
+    Se você quiser só o primeiro caractere de =EatMsg=, por exemplo, você pode utilizar um registrador de 8 bits, como =AL=, para obter apenas o primeiro caractere:
+
+    =mov al,[EatMsg]=
+
+    Para obter os dois primeiros caracteres:
+
+    =mov ax,[EatMsg]=
+
+    As coisas mudam um pouco quando queremos escrever dados de um registrador para a memória. NASM não "lembra" o tamanho das variáveis. Ele sabe onde =EatMsg= começa na memória,
+    e só. Você tem que dizer ao NASM quantos bytes de memória ele deve mover. Isso é feito por um /especificador de tamanho/. Por exemplo:
+
+    =mov [EatMsg],byte 'G'=
+
+    Aqui, usando o especificador de tamanho =BYTE=, dizemos ao NASM que queremos mover somente um byte para a memória. Outros especificadores de tamanho incluem =WORD= (16 bits)
+    e =DWORD= (32 bits).
+
+** CPU Flags
+   Uma /flag/ é um único bit de informação cujo significado é independente de qualquer outro bit. Um bit pode estar em /set/ em 1 ou /cleared/ em 0 pela CPU como for necessário.
+   A ideia é dizer a você, o programador, o estado de certas condições dentro da CPU, de forma que o seu programa possa testar e agir conforme o estado dessas condições.
+
+   O registrador =EFLAGS= é um registrador de 32 bits dentro da CPU. Cada um desses 32 bits é uma flag, e muitos não são utilizados.
+
+   Cada uma das flags no registrador =EFLAGS= possui um símbolo de duas ou três letras pelo qual a maioria dos programadores os conhecem. As flags mais comuns, seus símbolos e
+   breves descrições são listados a seguir:
+
+   * *OF*: *Overflow flag* está em set quando o resultado de uma operação aritmética em um inteiro
+     com sinal torna-se muito grande para caber no operando que ele originalmente ocupava. OF é
+     geralmente usado como uma "flag de /carry/" em aritmética com sinal.
+
+   * *DF*: *Direction flag* diz à CPU algo que você quer que ela saiba, em vez do contrário. Ela dita
+     a direção em que a atividade se move (memória acima ou memória abaixo) durante a execução de
+     instruções de strings. Quando DF está em set, as instruções de strings procedem de memória mais
+     alta para a memória mais baixa. Quando DF está em clear, as instruções de strings procedem da
+     memória mais baixo para a memória mais alta.
+
+   * *IF*: *Interrupt flag* é uma flag de dois sentidos. A CPU faz o set dela sob certas condições, e
+     você pode fazer o set dela usando instruções =STI= e =CLI=. Quando IF está em set, interrupções
+     estão habilitadas e podem ocorrer quando requeridas. Quando IF está em clear, interrupções são
+     ignoradas pela CPU. Sob o Linux, IF é para o uso do sistema operacional e algumas vezes pelos
+     seus drivers somente.
+
+   * *TF*: *Trap flag* permite que debuggers gerenciem /single-stepping/, ao forçar que a CPU execute
+     somente uma instrução antes de chamar uma rotina de interrupção.
+
+   * *SF*: *Sign flag* está em set quando o resultado de uma operação força o operando a se tornar
+     negativo. Por /negativo/, nós só queremos dizer que o o bit de maior ordem no operando torna-se
+     1 durante uma operação aritmética com sinal.
+
+   * *ZF*: *Zero flag* está em set quando os resultados de operações tornam-se zero.
+
+   * *AF*: *Auxiliary carry flag* é usado somente para aritmética BCD. Aritmética BCD trata cada byte
+     do operando como um par de "nybbles" de 4 bits e permite que algo aproximado à aritmética decimal
+     ser feito diretamente no hardware da CPU ao usar uma das instruções de aritmética BCD.
+
+   * *PF*: *Parity flag* indica se o número de bits em set (1) no byte de menor ordem de um resultado
+     é ímpar ou par.
+
+   * *CF*: *Carry flag* é usado em operações aritméticas sem sinal. Se o resultado de uma operação
+     aritmética ou de shift "carries out" um bit do operando, CF será colocado em estado de set.
+
+*** How Flags Change Program Execution
+    O verdadeiro valor das flags não está em seus valores em si, mas em como eles afetam o fluxo de instruções de máquina em nossos programas.
+
+    Existe toda uma categoria de instruções de máquina que fazem um "/jump/" para uma localização diferente em nosso programa baseado no valor atual de uma das flags. Essas instruções
+    são chamadas de instruções /conditional jump/, e a maioria das flags em =EFLAGS= possui uma ou mais instruções de jump condicional.
+
+*** Sign Extension and MOVSX
+    Pode existir um erro sútil quando você trabalha com valores com sinal de diferentes tamanhos. O bit de sinal é o bit mais significativo em um byte, palavra, ou palavra dupla com
+    sinal. Mas o que acontece quando você precisa mover um valor com sinal para um registrador ou localização de memória de tamanho maior? O que acontece por exemplo ao executar as
+    instruções a seguir?
+
+    #+BEGIN_SRC <ASM>
+    mov ax,-42
+    mov ebx,eax
+    #+END_SRC
+
+    A forma hexadecimal de -42 é 0xFFD6. Se temos esse valor em um registrador de 16 bits como =AX=, e usarmos =MOV= para mover o valor para um registrador de 32 bits como =EBX=, o /bit/
+    /com sinal não será mais o bit de sinal/, e seu valor acabará sendo outro.
+
+    As CPUs x86 fornecem uma forma de contornar isso, na forma da instrução =MOVSX= (Move with Sign Extension).
+
+    #+BEGIN_SRC <ASM>
+    mov ax,-42
+    movsx ebx,ax
+    #+END_SRC
+
+    Isso produzirá o resultado correto que esperamos. =MOVSX= é diferente de =MOV= também no sentido de que seus operandos podem ser de tamanhos diferentes.
+
+    Note que o operando destino de =MOVSX= pode ser somente registrador.
+
+** Implicit Operands and MUL
+   Algumas instruções agem sobre registradores ou mesmo endereços de memória que não estão explicitamente expressos em uma lista de operandos. Essas instruções de fato possuem operandos,
+   mas eles representam suposições feitas pela instrução. Operandos desse tipo são chamados de /operandos implícitos/, e eles não mudam e não podem ser mudados.
+
+   Os melhores exemplos de operandos implícitos no conjunto de instruções x86 são as instruções de multiplicação e divisão. Excluindo as instruções nos processadores dedicados de matemática
+   (x87, MMX, e SSE), o conjunto de instruções x86 possui dois conjuntos de instruções de multiplicação e divisão. Um conjunto, =MUL= e =DIV=, lidam com cálculos sem sinal. O outro, =IMUL=
+   e =IDIV=, lidam com cálculos com sinal.
+
+   Baseado no fato de que o maior produto de dois números binários pode ser expresso em não mais que o dobro do número de bits requeridos pelo maior fator, os designers dos processadores
+   Intel resolveram o problema de overflow na operação de multiplicação usando dois registradores para armazenar o resultado.
+   
+   O que nos leve à instrução =MUL=, que recebe apenas um operando, o qual contém um dos fatores a ser multiplicado. O outro fator é implícito, assim como o par de registradores que recebem
+   o produto do cálculo.
+
+   =mul ebx=
+
+   Os operandos implícitos dependem do tamanho do operando explícito. As variações são resumidas na tabela a seguir.
+
+   | MACHINE INSTRUCTION | EXPLICIT OPERAND | IMPLICIT OPERAND | IMPLICIT OPERAND (PRODUCT) |
+   |---------------------+------------------+------------------+----------------------------|
+   | mul                 | r/m8             | AL               | AX                         |
+   | mul                 | r/m16            | AX               | DX e AX                    |
+   | mul                 | r/m32            | EAX              | EDX e EAX                  |
+
+   Como podemos observar, uma vez que o produto requera mais que 16 bits, o registrador "D" é emprestado para armazenar a porção de maior ordem do produto. Por "maior ordem" queremos dizer
+   a porção do produto que não caberá no registrador "A". Por exemplo, se multiplicarmos dois valores de 16 bits e o resultado é 0x02A456F, então o registrador =AX= armazenará 0x456F, e o
+   registrador =DX= armazenará 0x02A.
+
+   Note que mesmo quando um produto é pequeno o suficiente para caber em apenas um dos registradores, o registrador de maior ordem será zerado.
+
+   Outra coisa a se notar é que valores imediatos não podem ser usados como operandos para =MUL=.
+
+*** MUL and the Carry Flag
+    Nem todas as multiplicações geram produtos grandes o suficiente para precisar de dois registradores. Então como podemos dizer se existem valores significantes no registrador de maior ordem?
+    =MUL= coloca a flag Carry (CF) em set quando o valor do produto overflows o registrador na ordem mais baixa. Se, depois de uma operação =MUL=, CF está em 0, você pode ignorar o registrador
+    de maior ordem com segurança.
+
+** Unsigned Division with DIV
+   Na divisão nós não temos que nos preocupar na possibilidade de gerar overflow. Mesmo assim, seria útil poder dividir números muito grandes, então os engenheiros da Intel criaram algo análogo
+   a instrução =MUL=: você coloca um valor dividendo em =EDX= e =EAX=, o que significa que ele pode chegar até a 64 bits de tamanho. O divisor é armazenado no único operando explícito de =DIV=,
+   que pode ser registrador ou estar na memória. (Assim como na instrução =MUL=, não é permitido o uso de um valor imediato como operando para =DIV=). O quociente é retornado em =EAX=, e o resto
+   em =EDX=.
+
+   | MACHINE INSTRUCTION | EXPLICIT OPERAND (DIVISOR) | IMPLICIT OPERAND (QUOTIENT) | IMPLICIT OPERAND (REMAINDER) |
+   |---------------------+----------------------------+-----------------------------+------------------------------|
+   | div                 | r/m8                       | AL                          | AH                           |
+   | div                 | r/m16                      | AX                          | DX                           |
+   | div                 | r/m32                      | EAX                         | EDX                          |
+
+   A instrução =DIV= não afeta nenhuma das flags. De qualquer forma, a divisão possui um problema especial: Usar um valor 0 no divisor ou no dividendo é indefinido, e gerará uma exceção aritmética
+   no Linux.
