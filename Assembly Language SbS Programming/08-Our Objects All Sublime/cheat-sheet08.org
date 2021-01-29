@@ -1,0 +1,170 @@
+* Capítulo 8 - Our Objects All Sublime: Creating programs that work
+
+** The .data Section
+   Programas ordinários no /espaço do usuário/ em NASM para Linux são divididos em três seções. A ordem nas quais essas seções aparecem no programa não
+   importam realmente, mas por convenção a seção =.data= vem primeiro, seguida pela seção =.bss=, e depois da seção =.text=.
+
+   A seção =.data= contém definições de dados de itens inicializados. Esses valores são parte do arquivo executável.
+
+   A coisa importante a se lembrar dessa seção é que quanto mais itens inicializados você define, maior será o executável e mais tempo demorará para
+   carregá-lo do disco para a memória ao executá-lo.
+
+** The .bss Section
+   Nem todos os dados precisam ter valores antes de o programa iniciar a execução. Essa selção serve para manter dados não inicializados.
+
+   Existe uma diferença crucial entre itens definidos na seção =.data= e itens definidos na seção =.bss=: itens na seção =.data= somam para o tamanho do
+   executável. Itens na seção =.bss= não somam para o tamanho do executável.
+
+** The .text Section
+   As instruções de máquina que fazem o seu programa vão para a seção =.text=.
+
+   Todos os /labels/ globais devem ser declarados dentro da seção =.text=, ou eles não serão "vistos" fora de seu programa pelo linker ou pelo loader.
+
+*** Labels
+    /labels/ devem iniciar com uma letra, ou ainda um underline, ponto, ou ponto de interrogação. Esses três últimos possuem significados especiais para o
+    assembler, então não os use até saber como NASM os interpreta.
+
+** Variables for Initialized Data
+   Uma variável é definida associando um identificador a uma /diretiva de definição de dado/ (/data definition directive/).
+
+   #+BEGIN_SRC <ASM>
+   MyByte db 07h           ; 8 bits in size
+   MyWord dw 0FFFFh        ; 16 bits in size
+   MyDWord dd 0B8000000h   ; 32 bits in size
+   #+END_SRC
+
+   Pense nas diretivas como =Define Byte=, =Define Word=, =Define Double Word=.
+
+** String Variables
+   /Strings/ são uma exceção à regra de que uma diretiva de definição de dado reserva uma quantidade particular de memória. A diretiva =db= comumente reserva
+   apenas um byte, mas uma string pode ter qualquer tamanho. Porque não existe diretiva de dado que reserva 17 bytes, ou 42, strings são definidas simplesmente
+   associando um label com o local onde a string começa.
+
+   O valor numérico =10= usado após uma string em sua definição denota o caractere EOL no Linux. Ele indica ao sistema operacional onde uma linha submetida para
+   impressão no console Linux termina. Qualquer texto subsequente submetida ao console será mostrado na próxima linha, iniciando na marge esquerda.
+
+** Deriving String Length with EQU and $
+   No exemplo =eatsyscall.asm=, abaixo da definição de =EatMsg= há a seguinte construção:
+
+   =EatLen: equ $-EatMsg=
+
+   Esse é um exemplo de uma classe maior de coisas chamadas /assembly-time calculations/. O que está sendo feito aí é calcular o tamanho da string =EatMsg= e
+   tornando seu valor acessível através do label =EatLen=.
+
+   Uma sentença contendo a diretiva =EQU= é chamada de um /equate/. Um equate é uma forma de associar um valor com um label.
+
+   Um valor pode ser definido:
+
+   =EatLen equ 14=
+
+   No momento da montagem, NASM percorre o código fonte e constroi um arquivo objeto intermediário =.o=. O token =$= no exemplo anterior marca o local onde NASM
+   está nesse arquivo intermediário. O label =EatMsg= marca o início da string. Imediatamente após o último caractere de =EatMsg= está o label =EatLen=. Lembre-se
+   que labels são locais e não dados - e, no caso de linguagem assembly, endereços. Quando NASM atinge o label =EatLen=, o valor de =$= é o local imediatamente após
+   o último caractere em =EatMsg=. Basta então que o /assembly-time calculation/ subtraia esse endereço do início da string (=$-EatMsg=) para obter seu tamanho.
+
+** Last In, First Out via the Stack
+   Na arquitetura x86, o topo da /stack/ é marcado por um registrador chamado de /stack pointer/, com o nome formal =ESP=. Ele é um registrador de 32 bit, e armazena
+   o endereço de memória do último item empilhado.
+
+   A pilha na arquitetura x86 é basicamente disposta de cabeça para baixo. Se você visualizar uma região de memória com o menor endereço na parte de baixo e o maior
+   endereço na parte de cima, a pilha começa na parte de cima, e conforme os itens são empilhados, a pilha cresce para baixo, na direção do menor endereço de memória.
+
+*** Push-y Instructions
+    Você pode colocar dados na pilha de diversas formas, mas a maneira mais direta envolve um grupo de cinco instruções relacionadas: =PUSH=, =PUSHF=, =PUSHFD=, =PUSHA=,
+    e =PUSHAD=. Todos funcionam de forma semelhante e divergem mais no que eles empilham:
+
+    * =PUSH= empilha um registrador de 16 bits ou 32 bits ou um valor de memória que é
+      especificado por você no código fonte.
+    * =PUSHF= empilha o registrador Flags de 16 bits.
+    * =PUSHFD= empilha o registrador EFlags de 32 bits.
+    * =PUSHA= empilha todos os oito registradores de propósito geral de 16 bits.
+    * =PUSHAD= empilha todos os oito registradores de propósito geral de 32 bits.
+
+    Exemplos:
+
+    #+BEGIN_SRC <ASM>
+    pushf             ; Push the Flags register
+    pusha             ; Push AX, CX, DX, BX, SP, BP, SI, e DI, in that order, all at once
+    pushad            ; Push EAX, ECX, EDX, EBX, ESP, EBP, ESI, e EDI, all at once
+    push ax           ; Push the AX register
+    push eax          ; Push the EAX register
+    push [bx]         ; Push the word stored in memory at BX
+    push [edx]        ; Push the doubleword in memory at EDX
+    push edi          ; Push the EDI register
+    #+END_SRC
+
+    =PUSH= funciona da seguinte forma: Primeiro =ESP= é decrementado por 32 bits de forma que ele apontará para uma área vazia do segmento /stack/ que possui tamanho de quatro
+    bytes. Depois o item que será empilhado é escrito na memória no endereço para onde ESP aponta. =PUSH= também pode empilhar valores de 16 bits; a única diferença é que nesse
+    caso, =ESP= se move 2 bytes em vez de 4.
+
+    =PUSHF= funciona da mesma forma, só que com o registrador específico Flags.
+    
+    =PUSHA= também funciona assim, a diferença é que ele empilha todos os oito registradores de propósito geral de 16 bits de uma vez, usando assim 16 bytes de espaço na pilha.
+
+    =PUSHFD= e =PUSHAD= funcionam da mesma forma com os registradores correspondentes de 32 bits.
+
+*** POP Goes the Opcode
+    Desempilhar um item é feito com outras cinco instruções análogas: =POP=, =POPF=, =POPFD=, =POPA=, =POPAD=.
+
+    #+BEGIN_SRC <ASM>
+    popf            ; Pop the top 2 bytes from the stack into Flags
+    popa            ; Pop the top 16 bytes from the stack into AX, CX, DX, BX, BP, SI, e DI ... but not SP!
+    popad           ; Pop the top 32 bytes from the stack into EAX, ECX, EDX, EBX, EBP, ESI, EDI ... but not ESP!
+    pop cx          ; Pop the top 2 bytes from the stack into CX
+    pop esi         ; Pop the top 4 bytes from the stack into ESI
+    pop [ebx]       ; Pop the top 4 bytes from the stack into memory at EBX
+    #+END_SRC
+
+    Quando uma instrução =POP= é executada, o seguinte ocorre: primeiro, os dados no endereço atualmente armazenado em =ESP= (16 bits ou 32 bits, dependendo do operando) são copiados
+    da pilha e colocados no operando da instrução =POP=. Depois disso, =ESP= é incrementado pelo tamanho do operando, de forma que =ESP= se mova dois ou quatro, dependendo do operando,
+    bytes na direção do maior endereço de memória (para cima na pilha).
+
+    Uma nota importante sobre =POPA= e =POPAD= é que o valor armazenado no /stack pointer/ não é alterado. Em outras palavras, =PUSHA= e =PUSHAD= empilhará o valor do /stack pointer/ atual.
+    De qualquer forma, =POPA= e =POPAD= discartam o valor de /stack pointer/ que eles encontrarem na pilha e não modificam o valor em =SP=/=ESP=.
+
+    Uma observação de uma utilizade disso é que a instrução =MOV= não opera sobre os registradores =Flags= ou =EFlags=. Se você quiser carregar uma cópia de Flags ou EFlags em um registrador,
+    você deve primeiro empilhar Flags ou EFlags com =PUSHF= ou =PUSHFD=, e depois desempilhar esses valores em um registrador de sua escolha com =POP=.
+
+    #+BEGIN_SRC <ASM>
+    pushf        ; Push the Flags register onto the stack
+    pop bx       ; and pop it immediately into BX
+    #+END_SRC
+
+    Nem todos os bits de EFlags são modificados com =POPFD=. Os bits =VM= e =RF= não são afetados ao desempilhar um valor para EFlags usando =POPFD=.
+
+** Using Linux Kernel Services Through INT80
+   Uma aplicação de usuário precisa pedir acesso à recursos do sistema operacional necessários para realizar ações como imprimir uma mensagem no console. O programa deve requerer esse tipo de
+   serviço através do kernel Linux. Isso é realizado através de interrupções de software.
+
+*** An interrupt that doesn't interrupt anything
+    Existe uma forma de chamar rotinas de serviço dentro do Linux que não depende do conhecimento do endereço de nada. Ele é comumente referido como /kernel services call gate/, e representa um
+    portão fortemente guardado entre /user space/ e /kernel space/. O /call gate/ é implementado através de uma interrupção de software x86.
+
+    Logo no início da memória de um processador x86, logo no segmento 0, offset 0, está uma /lookup table/ especial com 256 entradas. Cada entrada é um endereço completa de memória incluindo
+    porções de segmento e offset, para um total de 4 bytes por entrada. Os primeiros 1024 bytes de /qualquer/ máquina x86 são reservados para essa tabela, e nenhum outro código ou dado pode ser
+    colocado ali.
+
+    Cada um dos endereços na tabela é chamado de /interrupt vector/. A tabela como um todo é chamada de /interrupt vector table/.
+
+    Nenhum dos endereços é fixado em memória permanente como as BIOS dos PCs são. Quando a máquina inicia, Linux e a BIOS preenchem muitos dos slots na /tabela de vetores de interrupção/ com endereços
+    de certas rotinas de serviço dentro deles.
+
+    O que /não/ muda de uma versão do Linux para outra versão do Linux é o /número/ da interrupção que guarda um endereço em particular. Em outras palavras, desde o primeiro /release/ do Linux, a
+    interrupção número 80h aponta para o /services dispatcher/, um tipo de via com muitos caminhos que levam às muitas (quase 200) rotinas de serviço do kernel. O endereço do /dispatcher/ é diferente
+    nas várias distribuições e versões do Linux, mas a despeito disso os programas podem acessar o /dispatcher/ pelo slot 80h da /interrupt vector table/.
+
+    A instrução x86 =INT= (INTerrupt) é usada para fazer o requerimento de serviços para o kernel Linux. Quando uma instrução =INT 80h= é executada, a CPU vai para a /interrupt vector table/, faz o
+    /fetch/ do endereço no slot 80h, e depois pula a execução para esse endereço.
+
+    Nos bastidores, a instrução =INT 80h= empilha o endereço da próxima instrução (isto é, da instrução imediatamente após =INT 80h=), antes de seguir para o endereço na entrada 80h do vetor de interrupções.
+    Isso é feito para que o programa possa retornar para o seu fluxo de instruções após a execução da interrupção.
+
+    A partir daí, o /services dispatcher/ do kernel controla acesso a 200 rotinas de serviço individuais. Como ele sabe qual executar? O programador deve dizer qual serviço ele está requerindo, colocando
+    o número do serviço no registrador =EAX=. O dispatcher pode precisar de outras informações também, que devem ser colocadas em registradores específicos.
+
+    Para continuar a execução de onde parou antes da execução da instrução =INT 80h=, Linux olha para o topo da pilha, onde ele colocou o endereço da instrução que vem logo após =INT 80h=.
+
+    Assim como a instrução =INT= empilha um endereço de retorno antes de pular para o endereço armazenado em uma entrada particular da tabela de vetores de interrupção, existe uma instrução de "combinação"
+    que desempilha o endereço de retorno e pula para esse endereço. Essa instrução é =IRET= (Interrupt RETurn).
+
+    É necessária uma instrução =INT 80h= ao final do programa para garantir que sua saída seja limpa. Nesse caso, =EAX= recebe o valor 1 (/Exit syscall/) e =EBX= recebe o valor de retorno do programa.
