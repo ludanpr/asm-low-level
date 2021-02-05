@@ -1,0 +1,184 @@
+* Capítulo 9 - Bits, Flags, Branches, and Tables
+
+** Bits Is Bits (and Bytes is Bits)
+   Existe uma família de instruções no conjunto de instruções x86 que permite que você manipule bits dentro de bytes aplicando operações lógicas Booleanas
+   entre bytes bit-a-bit. Essas são as instruções lógicas /bitwise/: =AND=, =OR=, =XOR=, e =NOT=. Outra família de instruções permite que você movimente bits
+   dentro de um único byte ou palavra. Essas são as instruções de shift/rotate mais usadas: =ROL=, =ROR=, =RCL=, =RCR=, =SHL=, e =SHR=.
+
+*** The AND instruction
+    A instrução =AND= executa a operação lógica AND em dois operandos de mesmo tamanho e substitui o operando destino com o resultado da operação.
+
+    =and al,bl=
+
+*** The OR instruction
+    A instrução =OR= executa a operação lógica OR em dois operandos de mesmo tamanho e substitui o operando destino com o resultado da operação.
+
+    =or al,bl=
+
+*** The XOR instruction
+    A instrução =XOR= executa a operação lógica XOR em dois operandos de mesmo tamanho e substitui o operando destino pelo resultado da operação.
+
+    =xor eax,eax        ; clear eax register=
+
+*** The NOT instruction
+    A instrução =NOT= executa a operação lógica NOT em um operando e o substitui pelo resultado da inversão de bits.
+
+    =not ax=
+
+*** Segment Registers Don't Respond to Logic!
+    Mesmo quando você começar a trabalhar ao nível do sistema operacional, onde você pode ter algum acesso aos registradores de segmento na arquitetura x86 em
+    /protected-mode flat model/, os registradores de segmento possuem limitações significativas. Uma dessas limitações é que eles não podem ser usados com nenhuma
+    das instruções lógicas /bitwise/. Se você precisar realizar uma operação dessas em um registrador de segmento, é necessário copiar seu valor para um registrador
+    de propósito geral, realizar a operação, e copiá-lo de volta para o registrador de segmento.
+
+** Shifting Bits
+   Todas as instruções de shift possuem a mesma forma geral:
+
+   =shl <register/memory>,<count>=
+
+   O primeiro operando é o alvo da operação de shift, ele pode ser dados de registrador ou de memória, mas não dados imediatos. O segundo operando especifica o número
+   de bits pelo qual fazer o shift.
+
+*** Bumping Bits into the Carry Flag
+    Considere o valor =0xB76F= armazenado no registrador =AX=:
+
+    =1011011101101111=
+
+    e executamos a instrução =shl ax,1=, teremos então o resultado:
+
+    =0110111011011110=
+
+    Um bit 0 é adicionado na extremidade oposta do shitf (direita, nesse caso). Além disso, o bit 1 que foi empurrado para fora da string binária ao fazermos a operação
+    de shift é colocado em um local temporário para bits chamado de /Carry flag/, abreviado CF. Quando uma outra instrução que faz uso da CF é executada, esse bit será perdido.
+
+** The Rotate Instructions
+   As instruções de rotação são quase idênticas às instruções de shift, mas com uma diferença crucial: um bit empurrado para fora do operando reaparece na extremidade oposta
+   do operando.
+
+   Considere o registrador =AL= com o valor inicial =0xB2=
+
+   =10110010=
+
+   Ao executarmos a instrução =rol al,1= (rotate left), teremos o valor:
+
+   =01100101=
+
+   O número de bits pelo qual um operando é rotacionado pode ser um valor imediato ou um valor em =CL=.
+
+   Existe um outro par de instruções de rotação no conjunto de instruções x86: =RCR= (Rotate Carry Right) e =RCL= (Rotate Carry Left). Eles operam como =ROR= e =ROL=, mas com uma
+   diferença: os bits que são empurrados para fora do operando e voltam para o operando na outra extremidade fazem esse percurso passando pela /Carry flag/. Portanto, esse caminho
+   se torna um bit mais longo com essas instruções.
+
+   Em programação protected-mode, o valor pelo qual fazer o shift é truncado para 5 bits antes da instrução executar (Para x86), pois 31 bits é o maior valor útil pelo qual fazer um
+   shift.
+
+*** Setting a known value into the Carry Flag
+    É importante lembrar que instruções anteriores podem deixar valores na =CF=, de forma que esses valores serão rotacionados para o operando de uma instrução =RCL= ou =RCR=. Se uma
+    outra instrução deixa um bit 1 na =CF= e uma instrução =RCR= ou =RCL= é executada, esse bit 1 entrará no operando destino dessas instruções.
+
+    Se ao realizar uma operação de rotação desse tipo é importante saber o valor da =CF=, existe um par de instruções x86 que farão isso por você: =CLC= e =STC=. =CLC= faz o clear da
+    CF, isto é, zera ela. =STC= faz o set da CF, isto é, seu valor passa a ser 1. Essas instruções não recebem operandos.
+
+** Bit-Bashing in Action
+   Como já vimos, o Linux possuem um método bastante conveniente para exibir texto na tela. O problema é que ele só exibe /texto/ - se você quiser exibir um valor numérico de um
+   registrador como um par de dígitos hexadecimais, isso não ajudará. Primeiro, é necessário converter o valor numérico em sua representação em string, e depois exibir essa representação
+   usando o serviço de kernel =sys_write= via =INT 80h=.
+
+** Flags, Tests, and Branches
+
+*** Conditional jumps
+    Quando executado, um /jump/ condicional testa algo - geralmente uma, ocasionalmente duas, ou, mais raramente, três das /flags/ no registrador =EFlags=.
+
+*** Comparisons with CMP
+    A instrução =CMP= faz o /set/ de flags para tarefas de comparação.
+
+    =cmp <op1>,<op2>    ; Sets OF, SF, ZF, AF, PF, e CF=
+
+*** A Jungle of Jump Instructions
+    Existe um grande número de mnemônicos para instruções /jump/, mas aqueles que lidam com relações aritméticas podem ser considerados em seis categorias: =Equal=, =Not equal=, =Greater than=,
+    =Less than=, =Greater than or equal to=, e =Less than or equal to=. Complicações podem surgir do fato de que existem /dois/ mnemônicos para cada instrução de máquina - por exemplo, =JLE=
+    (/Jump if Less than or Equal to/) e =JNG= (/Jump if Not Greater than/) são sinônimos, de forma que o /assembler/ gera opcodes binários idênticos para esses dois mnemônicos. Os sinônimos são
+    apenas uma conveniência para o programador.
+
+    Outra complicação é que existem conjuntos de instruções separados para comparações aritméticas em operandos com sinal e sem sinal.
+
+*** "Greater Than" versus "Above"
+    Para diferenciar /signed jumps/ de /unsigned jumps/, os mnemônicos usam duas expressões distintas para a relação entre dois valores:
+
+    * *Valores com sinal* são vistos como sendo *maiores que* ou *menores que*. Por exemplo,
+      para testar se um operando com sinal é maior que outro, usaríamos o mnemônico =JG=
+      (Jump if Greater) depois de uma instrução =CMP=.
+    * *Valores sem sinal* são vistos como estando /acima/ ou /abaixo/. Por exemplo, para dizer
+      se um operando sem sinal é maior que (/acima/) outro, usaríamos o mnemônico =JA=
+      (Jump if Above) depois de uma instrução =CMP=.
+
+    A tabela a seguir resume os mnemônicos aritméticos de jump e seus sinônimos.
+
+    | Mnemônico                           | Sinônimo                                 |
+    |-------------------------------------+------------------------------------------|
+    | JA (Jump if Above)                  | JNBE (Jump if Not Below or Equal)        |
+    | JAE (Jump if Above or Equal)        | JNB (Jump if Not Below)                  |
+    | JB (Jump if Below)                  | JNAE (Jump if Not Above or Equal)        |
+    | JBE (Jump if Below or Equal)        | JNA (Jump if Not Above)                  |
+    | JE (Jump if Equal)                  | JZ (Jump if result is Zero)              |
+    | JNE (Jump if Not Equal)             | JNZ (Jump if result is Not Zero)         |
+    | JG (Jump if Greater than)           | JNLE (Jump if Not Less than or Equal)    |
+    | JGE (Jump if Greater than or Equal) | JNL (Jump if Not Less than)              |
+    | JL (Jump if Less than)              | JNGE (Jump if Not Greater than or Equal) |
+    | JLE (Jump if Less than or Equal)    | JNG (Jump if Not Greater than)           |
+
+    A tabela a seguir mostra os mnemônicos relacionados a comparações aritméticas organizados por condições lógicas e de acordo com seu uso com valores com sinal ou com valores sem sinal. Também
+    são listadas as /flags/ cujos valores são testados por cada instrução de /jump/.
+
+    | Condição                     | Unsigned | Jump quando      | Signed | Jump quando        |
+    |------------------------------+----------+------------------+--------+--------------------|
+    | Equal                        | JE       | ZF = 1           | JE     | ZF = 1             |
+    | Not Equal                    | JNE      | ZF = 0           | JNE    | ZF = 0             |
+    | Greater than                 | JA       | CF = 0 E ZF = 0  | JG     | ZF = 0 OU SF = OF  |
+    | Not Less than or Equal to    | JNBE     | CF = 0 E ZF = 0  | JNLE   | ZF = 0 OU SF = OF  |
+    | Less than                    | JB       | CF = 1           | JL     | SF != OF           |
+    | Not Greater than or Equal to | JNAE     | CF = 1           | JNGE   | SF != OF           |
+    | Greater than or Equal to     | JAE      | CF = 0           | JGE    | SF = OF            |
+    | Not less than                | JNB      | CF = 0           | JNL    | SF = OF            |
+    | Less than or Equal to        | JBE      | CF = 1 OU ZF = 1 | JLE    | ZF = 1 OU SF != OF |
+    | Not Greater than             | JNA      | CF = 1 OU ZF = 1 | JNG    | ZF = 1 OU SF != OF |
+
+
+*** Looking for 1-Bits with TEST
+    A instrução =TEST= realiza uma operação lógica =AND= entre dois operandos, e depois faz o set das flags como a instrução =AND= faria, sem alterar o operando destino.
+
+    =test <operand>,<bit mask>=
+
+    O operando /bit mask/ deve conter um bit 1 em cada posição onde um bit 1 deve ser buscado no primeiro operando, e bits 0 em todos os outros bits.
+
+    Por exemplo, se quisermos determinar se o bit 3 de =AX= está em /set/, usaríamos:
+
+    =test ax,08h       ; Bit 3 -> 00001000B=
+
+    O operando destino =AX= não é modificado como o resultado da operação, mas a tabela verdade AND é checada entre =AX= e o padrão binário 00001000. Se o bit 3 em =AX= é
+    um bit 1, então a flag ZF é atribuída para 0. Se o bit 3 em =AX= é um bit 0, então ZF é atribuída para 1. Por quê? Se você fizer o =AND= de 1 (na máscara de bits) com
+    0 (em =AX=), você obtém 0. E se todas as oito operações /bitwise/ AND terminarem em 0, o resultado é 0, e ZF é setada para 1, indicando que o resultado é 0.
+
+    =TEST= está para um =AND= assim como =CMP= está para um =SUB=.
+
+    Dois fatores que são importantes de se ter em mente: =TEST= somente é útil para encontrar bits 1; =TEST= não pode testar com confiança por dois ou mais bits 1 no operando
+    de uma só vez, ele só checa pela presença de um único bit 1.
+
+*** Looking for 0-Bits with BT
+    A partir dos processadores 386, foi introduzida uma nova instrução que pode testar por ambos bits 0 ou bits 1. =BT= (Bit Test) copia o bit especificado do primeiro
+    operando para para a Carry Flag (CF).
+
+    =bt <value containing bit>,<bit number>=
+
+    Por exemplo:
+
+    #+BEGIN_SRC <ASM>
+    bt eax,4       ; Test bit 4 of AX
+    jnc quit       ; Done if bit 4 = 0 (CF = 0)
+    #+END_SRC
+
+    Note que, contrário a =TEST=, com =BT= você não está criando uma /máscara de bits/. Com o segundo operando de =BT= você especifica o número orinal de um bit (contando a partir
+    de 0).
+
+    Note que a instrução =BT= é bastante lenta, então pode ser significativo usar alguma outra opção mais rápida dentro de laços que são repetidos uma quantidade enorme de vezes,
+    por exemplo.
