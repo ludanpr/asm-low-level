@@ -1,0 +1,84 @@
+* Capítulo 10 - Dividing and Conquering
+
+** Calling and Returning
+   Os pontos importantes da estrutura de um procedimento são:
+   * Um procedimento deve iniciar com um rótulo (/label/).
+   * Em algum lugar dentro do procedimento, deve existir pelo menos uma instrução =RET=.
+   * Pode haver mais de uma instrução =RET=. O fluxo de execução deve voltar de um procedimento
+     por meio de uma instrução =RET=, mas pode existir mais de uma porta de saída de um procedimento.
+   * Um procedimento deve usar =CALL= para chamar outro procedimento.
+
+   Os meios pelos quais =CALL= e =RET= operam devem soar familiares: =CALL= primeiro empilha o endereço da /próxima/ instrução que vem  depois dela. Depois
+   =CALL= transfere a execução para o endereço representado pelo /label/ que nomeio o procedimento. As instruções contidas no procedimento são executadas.
+   Finalmente, o procedimento é terminado pela instrução =RET=. A instrução =RET= desempilha o endereço no topo da pilha e transfere a execução para esse
+   endereço. Porque o endereço anteriormente empilhado é o endereço da primeira instrução após a instrução =CALL=, a execução continua como se =CALL= não
+   tivesse mudado o fluxo de execução.
+
+   Isso deve nos lembrar de como interrupções de software funcionam.
+
+** Local Data
+   As instruções =PUSH= colocam dados na pilha. Quando uma parte de seu código chama um procedimento com a instrução =CALL=, ele pode passar dados para esse
+   procedimento usando =PUSH= uma ou mais vezes antes da instrução =CALL=. O procedimento pode então acessar os dados empilhados. De qualquer forma, é preciso
+   ter cuidado com uma coisa: O procedimento não pode simplesmente desempilhar esses dados em registradores, porque como já vimos o endereço da próxima instrução
+   depois de =CALL= foi colocado no topo da pilha.
+
+** Local Labels and the Length of Jumps
+   NASM possui uma forma de lidar com possíveis conflitos de /labels/: /local labels/. Local labels são baseados no fato de que quase todos os labels em assembly
+   (fora de nomes de subrotinas e seções principais) são "locais" em natureza, significando que eles são referenciados somente por instruções de jump que estão muito
+   próximas a eles.
+
+   Um label com um ponto (.) na frente de seu nome marca ele como local. Local labels são locais ao primeiro label não local (isto é, o primeiro label não prefixado
+   por um ponto; labels não prefixados por pontos são chamados /globais/) que os precede no código.
+
+*** How NASM treats local labels
+    Um label local possui uma definição implícita que inclui o label global para o qual ele pertence. Considere, por exemplo, o label local =.mod_test=, pertencente
+    ao label global =scan=. Internamente, NASM conhece =.mod_test= como =scan.mod_test=. Se existisse outro label local =.mod_test= em algum outro lugar do programa,
+    pertencente a um label global =calc= por exemplo, NASM o conheceria como =calc.mod_test=.
+
+    Esse fato pode inclusive ser usado para forçar um acesso a um label local de uma parte do código que não está no label global que o contém:
+
+    =jmp calc.mod_test=
+
+** Short, Near, and Far Jumps
+   Um dos erros mais estranhos que você pode encontrar em um programa assembly teoricamente correto.
+
+   =error: short jump is out of range=
+
+   Esse erro ocorre quando uma instrução de jump condicional está muito longe do label que ela referencia. Isso se aplica somente a jumps condicionais; a instrução de
+   jmp incondicional =JMP= não está sujeita a esse erro.
+
+   O problema surge das formas diferentes que NASM pode gerar o opcode para uma instrução de jump condicional em particular. Existem dois tipos diferentes de jump
+   condicional, baseado em quão longe o label alvo do jump está. Um alvo de um jump que está dentro de no máximo 127 bytes de distância da instrução de jump condicional
+   é chamado de /short jump/. Um label que está mais longe que 127 bytes mas ainda dentro do segmento de código atual é chamado de /near jump/.
+
+   Existe um terceiro tipo de jump chamado /far jump/, que envolve deixar inteiramente o segmento de código atual.
+
+   NASM por padrão gera opcodes para /short jumps/ a não ser que você diga explicitamente para usar /near jumps/.
+
+   #+BEGIN_SRC <ASM>
+   jne scan               ; Short jump, to within 127 bytes in either direction
+   jne near scan          ; Near jump, anywhere in the current code segment (up to 2GB)
+   #+END_SRC
+
+** Building External Procedure Libraries
+
+*** Global and External Declarations
+    Declarar um procedimento como /externo/ significa dizer ao assembler que um dado /label/ será encontrado fora do programa em algum lugar, em outro módulo.
+
+    =EXTERN my_procedure=
+
+    No outro módulo, onde =my_procedure= existe, não é o bastante apenas declará-lo. É necessário avisar o assembler que =my_procedure= será referenciado fora
+    do módulo. Você faz isso declarando o procedimento como /global/, significando que outros módulos em qualquer outro lugar podem referenciar livremente
+    =my_procedure=.
+
+    =GLOBAL my_procedure=
+
+    Em resumo, um procedimento declarado =GLOBAL= onde é definido pode ser referenciado de qualquer lugar onde o seu label é declarado =EXTERN=.
+
+    Uma vez feitas essas convenções de declaração, o linker realiza o trabalho de fazer o link dessas duas entidades, o programa e o(s) módulo(s).
+
+    O que vale para procedimento vale para dados também. O seu programa pode declarar qualquer variável como =GLOBAL=, e essa variável pode então
+    ser usada por qualquer módulo no qual o mesmo identificador da variável é declarado como =EXTERN=.
+
+    Frequentemente diz-se de um programa ou módulo contendo procedimentos ou variáveis declaradas como global /exporta/ esses itens. Similarmente,
+    diz-se que um programa ou módulo que usa procedimentos ou variáveis que são externas a ele /importa/ esses itens.
