@@ -1,0 +1,36 @@
+* 1 - Introduction to Consistency and Coherence
+  Projetar e avaliar um sistema de compartilhamento de memória correto requere que um arquiteto entenda *consistência de memória*
+  e *coerência de cache*. /Consistência de memória/ (consistência, modelo de consistência de memória, ou modelo de memória) é definição
+  precisa, arquiteturalmente visível da corretude da memória compartilhada. Definições de consistência fornecem regras sobre /loads/ e
+  /stores/ (ou leitura e escrita de memória) e como elas agem sobre a memória.
+
+  A microarquitetura - o projeto de hardware dos /cores/ do processador e do sistema de compartilhamento de memória - deve garantir o
+  modelo de consistência desejado. Como parte desse suporte ao modelo de consistência, o hardware fornece /coerência de cache/ (ou coerência).
+  Em um sistema compartilhado de memória com /caches/, os valores em cache podem potencialmente se tornar desatualizados (ou incoerentes)
+  quando um dos processadores atualiza seu valor em cache. Coerência busca fazer das caches de um sistema de memória compartilhada tão
+  funcionalmente invisíveis como as caches em um sistema de /core/ único; ele faz isso propagando uma escrita de um processador para as caches
+  de outros processadores. Notemos que diferentemente da consistẽncia que é uma especificação arquitetural que define a corretude de memória
+  compartilhada, a coerência é um meio de dar suporte a um modelo de consistência.
+
+** Consistency (aka, Memory Consistency, Memory Consistency Model, or Memory Model)
+  #+BEGIN_EXAMPLE
+  Modelos de consistência definem o comportamento correto de memória compartilhada em termos de loads
+  e stores (leitura e escrita de memória), sem referências a caches ou coerência.
+  #+END_EXAMPLE
+
+  Corretude de memória compartilhada é especificada por um modelo de consistência de memória ou, mais simplesmente, um modelo de memória. O
+  modelo de memória especifica o comportamento permitido de programas multithreaded executando com memória compartilhada. Para um programa
+  multithreaded executando com dados de entrada específicos, o modelo de memória especifica quais valores loads dinâmicos podem retornar e,
+  opcionalmente, quais os possíveis estados finais de memória. Diferente de execução em single-thread, vários comportamentos corretos são
+  usualmente permitidos.
+
+** Coherence (aka, Cache Coherence)
+   A não ser que cuidados sejam tomados, um problema de coerência pode surgir se vários atores (e.g., cores múltiplos) possuem acesso a
+   múltiplas cópias de um dado (e.g., em múltiplas caches) e pelo menos um acesso é uma escrita.
+
+   Acesso a dados desatualizados (incoerentes) é prevenido usando-se um protocolo de coerência, que é um conjunto de regras implementado
+   pelo conjunto distribuído de atores dentro de um sistema. Protoclos de coerência vêm em muitos variantes mas seguem apenas alguns temas.
+   Essencialmente, todos os variantes fazem de uma escrita de um processador visível aos outros processadores propagando a escrita para
+   todas as caches. Mas os protocolos diferem em /quando/ e /como/ esse sincronismo ocorre. Existem duas classes principais de protocolos
+   de coerência. Na primeira abordagem, o protocolo de coerência garante que escritas são propagadas às caches de forma síncrona. Na segunda
+   abordagem, o protoclo de coerência propaga escritas às caches de forma assíncrona, enquanto ainda honrar o modelo de consistência.
