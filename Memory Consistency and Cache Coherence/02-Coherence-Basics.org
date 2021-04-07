@@ -1,0 +1,91 @@
+* Capítulo 2 - Coherence Basics
+
+** The Problem: How Incoherence could possibly occur
+   A possibilidade de incoerência de /cache/ surge somente por conta de um problema fundamental: existe múltiplos
+   atores com acesso a caches e memória. Em sistemas modernos, esses atores são /cores/ de processador, DMA /engines/,
+   e dispositivos externos que podem ler e/ou escrever em caches e na memória.
+
+** The Cache Coherence Interface
+   Informalmente, um protocolo de coerência deve garantir que escritas são tornadas visíveis para todos os processadores.
+
+   Os /cores/ de processador interagem com o /protocolo de coerência de cache/ através de uma interface de coerência que
+   fornece dois métodos: (1) um método /read-request/ que recebe uma localização de memória como parâmetro e retorna um
+   valor; e (2) um método /write-request/ que recebe uma localização de memória e um valor (para ser escrito) como parâmetros
+   e retorna um uma confirmação.
+
+   Existem vários protocolos de coerência na literatura, e nós os classificamos em duas categorias baseadas na natureza de
+   suas interfaces de coerência - especificamente, baseadas na existência de uma separação clara entre coerência e modelo de
+   consistência ou se elas são indivisíveis.
+
+   *Consistency-agnostic coherence.* Na primeira categoria, uma escrita é tornada visível a todos os
+   outros cores antes de retornar. Porque escritas são propagadas sincronamente, essa primeira categoria
+   apresenta uma interface que é idêntica àquela de um sistema atômico de memória (sem caches). De uma
+   perspectiva de garantia de consistência, essa interface de coerência permite uma bela separação de
+   preocupações. O protocolo de coerência de cache abstrai as caches completamente e apresenta uma ilusão
+   de memória atômica enquanto o pipeline do core do processador garante a ordem obrigatória pela
+   especificação do modelo de consistência.
+
+   *Consistency-directed coherence.* Nessa outra categoria mais recente, escritas são propagadas
+   assincronamente. De qualquer forma, a fim de garantir corretamente consistência, protocolos de
+   coerência nessa classe devem garantir que a ordem na qual escritas são eventualmente tornadas
+   visíveis adere às regras de ordenação obrigatórias pelo modelo de consistência. Essa segunda
+   categoria surgiu para suprir unidades de processamento gráfico de propósito geral  baseadas em
+   taxa de saída (GP-GPUs).
+
+** (Consistency-Agnostic) Coherence Invariants
+   Quais /invariantes/ um protocolo de coerência deve satisfazer para fazer as caches invisíveis e apresentar uma abstração de
+   um sistema atômico de memória?
+
+   Nós definimos coerência através do invariante /single-writer-multiple-reader/ (SWMR). Para qualquer localização de memória, em
+   qualquer momento no tempo, existe ou um único /core/ que pode escrever nessa localização de memória (e que também pode lê-la) ou
+   algum número de /cores/ que podem ler essa localização. Uma outra forma de ver essa definição é considerar, para cada localização
+   de memória, que o tempo de vida da localização de memória é dividido em épocas. Em cada época, ou um único /core/ possui acesso
+   de leitura-escrita ou algum número de /cores/ (possivelmente zero) possui acesso somente leitura.
+
+   Em adição ao invariante SWMR, coerência requere que o valor de uma dada localização de memória seja propagado corretamente.
+
+   Por isso, a definição de coerência deve aumentar o invariante SWMR com um invariante de valor de dados que se refere a como os
+   valores são propagados de uma época para a próxima. Esse invariante afirma que o valor de uma localização de memória ao início
+   de uma época é o mesmo que o valor da localização de memória ao final de sua última época de leitura-escrita.
+
+   ------------------------------------------------------------------------------------------------------------------------------
+   *Invariantes de Coerência*
+   1. *Single Writer, Multiple Reader Invariant.* Para qualquer local A, em qualquer momento, existe somente um único /core/ que
+      pode escrever em A (e também pode ler) ou algum número de /cores/ que podem somente ler A.
+   2. *Data-Value Invariant.* O valor do local de memória ao início de uma época é o mesmo que o valor do local de memória ao
+      final de sua última época ocorrida de leitura-escrita.
+   ------------------------------------------------------------------------------------------------------------------------------
+
+*** Maintaining the Coherence Invariants
+    Os invariantes de coerência apresentados anteriormente fornecem alguma intuição em como os protocolos de coerência funcionam.
+    A grande maioria dos protocolos de coerência, chamados "protocolos de invalidação", são projetados explicitamente para manter
+    esses invariantes. Se um /core/ quer ler um local de memória, ele envia mensagens aos outros /cores/ para obter o valor atual
+    do local de memória e para garantir que nenhum outro /core/ possui cópias em cache do local de memória em um estado de leitura-
+    escrita. Essas mensagens terminam qualquer época de leitura-escrita ativas e começam uma época de somente leitura. Se um /core/
+    quer escrever em um local de memória, ele envia mensagens para os outros /cores/ para obter o valor atual do local de memória,
+    se ele já não possui uma cópia em cache válida de somente leitura, e para garantir que nenhum outro /core/ possua cópias em
+    cache do local de memória ou em estado somente-leitura ou leitura-escrita. Essas mensagens terminam qualquer época de leitura-
+    escrita ou somente-leitura ativa e iniciam uma nova época de leitura-escrita.
+
+*** The Granularity of Coherence
+    Um /core/ pode realizar /loads/ e /stores/ em várias granularidades, frequentemente no intervalo de 1-64 bytes. Em teoria, a
+    coerência poderia ser realizada ao grau mais fino de granularidade de load/store. Entretanto, na prática, a coerência é
+    usualmente mantida na granularidade de blocos de cache. Dessa forma, na prática, é provável de o invariante SWMR ser que, para
+    qualquer /bloco/ de memória, existe ou um único /writer/ ou algum número de /readers/. Em sistemas típicos, não é possível
+    que um /core/ escreva no primeiro byte de um bloco enquanto outro /core/ escreve em outro byte do mesmo bloco.
+
+*** Consistency-Like Definitions of Coherence
+    Um abordagem baseada em consistência para especificar coerência está relacionada à definição de /consistência sequencial/.
+    Consistência sequencial especifica que o sistema deve parecer executar todos os /loads/ e /stores/ das threads a todas as
+    localizações de memória em um ordem total que respeita a ordem de programa de cada thread. Todo /load/ obtém o valor do
+    /store/ mais recente nessa ordem total. Uma definição de coerência que é análoga à definição de consistência sequencial é
+    que um sistema coerente deve parecer executar todos os /loads/ e /stores/ de threads para uma única localização de memória
+    em uma ordem total que respeita a ordem de programa de cada thread. Essa definição destaca uma distinção importante entre
+    coerência e consistência na literatura: coerência é especificada em uma base por local de memória, enquanto a consistência
+    é especificada com respeito a todas a localizações de memória.
+
+    Outra definição de coerência define-a com dois invariantes: (1) todo /store/ eventualmente torna-se visível a todos os /cores/
+    e (2) escritas para o mesmo local de memória são serializadas (i.e., observadas na mesma ordem por todos os /cores/). O invariante
+    2 é equivalente à definição baseada em consistência descrita no parágrafo anterior. Em contraste com o invariante 2, que é um
+    invariante de /segurança/ (/safety/, "coisas ruins não devem ocorrer"), o invariante 1 é um invariante de /vivacidade/ (/liveness/,
+    "coisas boas devem eventualmente ocorrer).
