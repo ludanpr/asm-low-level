@@ -1,0 +1,291 @@
+* Capítulo 3 - Memory Consistency Motivation and Sequential Consistency
+
+** Problems with Shared Memory Behavior
+   Para observar porque o comportamento de memória compartilhada deve ser definido, considere a execução exemplo de dois cores
+   mostrada na tabela a seguir. A maioria dos programadores esperaria que o registradr =r2= do core C2 deveria receber o valor
+   NEW. De qualquer forma, r2 pode receber o valor 0 em alguns dos sistemas computacionais de hoje, pois as instruções S1 e S2
+   do core C1 pode ser reordenadas.
+
+   | Core C1               | Core C2                     | Comments                                |
+   |-----------------------+-----------------------------+-----------------------------------------|
+   | S1: Store data = NEW; |                             | /* Initially, data = 0 & flag != SET */ |
+   | S2: Store flag = SET; | L1: Load r1 = flag;         | /* L1 & B1 may repeat many times */     |
+   |                       | B1: if (r1 != SET) goto L1; |                                         |
+   |                       | B2: Load r2 = data;         |                                         |
+
+   ----------------------------------------------------------------------------------------------------------------------------
+   *How a Core Might Reorder Memory Access*
+
+   Vamos descrever agora algumas das formas pelas quais os /cores/ modernos podem reordenar acessos à memória de endereços diferentes.
+   Na maioria dos casos, nós só precisamos raciocinar sobre um /core/ reordenando duas operações de memória para dois endereços
+   diferentes, como o modelo de execução sequencial (i.e., von Neumann) geralmente requere que operações para o mesmo endereço executem
+   na ordem original do programa. Nós dividimos as reordenações possíveis em três casos baseados em se as operações de memória
+   reordenadas são /loads/ ou /stores/.
+
+   *Store-store reordering.* Dois /stores/ podem ser reordenados se um core possui um /buffer/ de escrita não-FIFO
+   que permite que /stores/ desviem em uma ordem distinta da ordem na qual eles entraram. Note que essas reordenações
+   são possíveis mesmo se o /core/ executa todas as instruções em ordem de programa. A reordenação dos /stores/ para
+   diferentes endereços de memória não tem efeito em uma execução em thread única. Entretanto, no exemplo usando
+   /multithreading/ na tabela anterior, a reordenação dos /stores/ do core C1 faz com que C2 enxergue a =flag= como SET
+   antes de poder enxergar o /store/ de =data=.
+
+   *Load-load reordering.* /Cores/ modernos escalonados (/scheduled/) dinamicamente podem executar instruções fora da
+   ordem de programa. Na tabela anterior, o core C2 poderia executar os /loads/ L1 e L2 fora de ordem. Considerendo
+   somente uma execução em single-thread, essa reordenação parece segura pois L1 e L2 estão em endereços distintos.
+   Entretanto, a reordenação dos /loads/ do core C2 possuirá o mesmo comportamento que a reordenação dos /stores/ do
+   core C1.
+
+   *Load-store and store-load reordering.* /Cores/ fora-de-ordem também podem reordenar /loads/ e /stores/ (para endereços
+   distintos) da mesma thread. Reordenar um /load/ que vem antes com um /store/ que vem depois (uma reordenação load-store)
+   pode causar vários comportamentos incorretos. Note que reordenações /store-load/ também podem surgir devido a cortornos
+   locais no /buffer/ de escrita FIFO comumente implementado, mesmo com um /core/ que executa todas as instruções em ordem
+   de programa.
+   ----------------------------------------------------------------------------------------------------------------------------
+
+   Vamos considerar outro exemplo importante inspirado pelo algoritmo de Dekker para garantir exclusão mutual, como mostrado na tabela a seguir.
+
+   | Core C1      | Core C2      | Comments                      |
+   |--------------+--------------+-------------------------------|
+   | S1: x = NEW; | S2: y = NEW; | /* Initially, x = 0, y = 0 */ |
+   | L1: r1 = y;  | L2: r2 = x;  |                               |
+
+   Depois da execução, quais valores podem estar em =r1= e =r2=? Intuitivamente, poderíamos esperar que existem três possibilidades:
+
+   * (r1, r2) = (0, NEW) para a execução S1 -> L1 -> S2 -> L2
+   * (r1, r2) = (NEW, 0) para a execução S2 -> L2 -> S1 -> L1
+   * (r1, r2) = (NEW, NEW), e.g., para   S1 -> S2 -> L1 -> L2
+
+   Surpreendentemente, a maioria dos hardwares, por exemplo, sistemas x86 Intel a AMD, também permite (r1, r2) = (0, 0) porque eles usam /buffers/ de escrita
+   FIFO para aumentar performance.
+
+   Devemos notar que todos os multiprocessadores atuais são /não-determinísticos/ por padrão; todas as arquiteturas que conhecemos permitem múltiplos
+   /interleavings/ possíveis das execuções de threads concorrentes. A ilusão de determinismo é algumas vezes, mas não sempre, criada por software com idiomas
+   apropriados de sincronização. Dessa forma, nós devemos considerar o não determinismo ao definirmos o comportamento de memória compartilhada.
+
+** What is a Memory Consistency Model?
+   Um /modelo de consistência de memória/, ou um /modelo de memória/, é uma especificação do comportamento permitido de programas /multithreaded/ executando com
+   memória compartilhada. Para um programa /multithreaded/ executando com dados de entrada específicos, o modelo de memória especifica quais valores os /loads/
+   dinâmicos podem retornar.
+
+   Em geral, um modelo de consistência de memória MC traz regras que particionam as execuções naquelas obedecendo MC (/execuções/ MC) e aquelas desobedecendo
+   MC (/execuções não-MC/). Esse particionamento das execuções, por sua vez, particiona implementações. Uma /implementação/ MC é um sistema que permite somente
+   execuções MC, enquando uma /implementação não-MC/ algumas vezes permite execuções não-MC.
+
+** Consistency vs. Coherence
+   Já vimos que a coerência de /cache/ é definida através de dois invariantes. O *invariante SWMR* garante que em qualquer momento para uma localização de memória
+   com um dado endereço, ou (a) um /core/ pode escrever (e ler) no (do) endereço, ou (b) zero ou mais /cores/ pode somente ler do endereço. O *invariante Data-Value*
+   garante que modificações na localização de memória são propagadas corretamente de forma que cópias em /cache/ da localização de memória sempre contenham a versão
+   mais recente.
+
+   Pode parecer que coerência de cache define um comportamento de memória compartilhada. Mas esse não é o caso. O protocolo de coerência simplesmente fornece ao
+   /pipeline/ do /core/ do processador uma abstração de um sistema de memória. Ele sozinho não pode determinar comportamento de memória compartilhada.
+
+   Em resumo:
+
+   * Coerência de cache não é a mesma coisa que consistência de memória.
+   * Uma implementação de consistência de memória pode usar coerência de cache como o "caixa preta".
+
+** Basic Idea of Sequential Consistency (SC)
+   O modelo de consistência de memória conhecido como *consistência sequencial* foi primeiro formalizado por Lamport, que denominou um processador de /core/ único se
+   "o resultado de uma execução é o mesmo de como se as operações tivessem sido executadas na ordem especificada pelo programa". Ele então chamou um multiprocessador
+   de /consistente sequencialmente/ se "o resultado de qualquer execução é o mesmo de como se as operações de todos os processadores (/cores/) fossem executados em
+   alguma ordem sequencial, e as operações de cada processador (/core/) individual aparecessem nessa sequência na ordem especificada pelo programa." Essa ordem total
+   de operações é a *ordem de memória*. Na consistência sequencial, a ordem de memória respeita a ordem de programa de cada /core/, mas outros modelos de
+   consistência podem permitir ordens de memória que nem sempre respeitam a ordem de programa.
+
+   Nós denotaremos a ordem de memória usando o operador <m, de forma que =op1 <m op2= implica que op1 precede op2 na ordem de memória. De forma análoga, nós usamos o
+   operador <p para denotar a ordem de programa para um dado /core/, de forma que =op1 <p op2= implica que op1 precede op2 na ordem de programa daquele /core/.
+
+   A figure a seguir mostra a execução do programa exemplo da primeira tabela que vimos.
+
+   #+BEGIN_EXAMPLE
+   Ordem de Programa (<p) do Core C1        Ordem de Memória (<m)        Ordem de Programa (<p) do Core C2
+           |                                         |                                            |
+           |                                         |                   L1: r1 = flag; /* 0 */   |
+           |                                         |<-------------------------------------------|
+           | S1: data = NEW; /* NEW */               |                                            |
+           |---------------------------------------->|                   L1: r1 = flag; /* 0 */   |
+           |                                         |<-------------------------------------------|
+           |                                         |                                            |
+           |                                         |                   L1: r1 = flag; /* 0 */   |
+           |                                         |<-------------------------------------------|
+           | S2: flag = SET; /* SET */               |                                            |
+           |---------------------------------------->|                   L1: r1 = flag; /* SET */ |
+           |                                         |<-------------------------------------------|
+           |                                         |                                            |
+           |                                         |                   L2: r2 = data; /* NEW */ |
+           |                                         |<-------------------------------------------|
+           |                                         |                                            |
+           v                                         V                                            v
+   #+END_EXAMPLE
+
+   Sob a /consistência sequencial/, a ordem de memória /respeita/ a ordem de programa de cada /core/. "Respeita" significa que =op1 <p op2= implica =op1 <m op2=.
+
+   Todas as execuções do programa exemplo terminarão com =r2= com o valor =NEW=. O único não-determinismo - quantas vezes L1 carrega a =flag= com o valor =0= antes de carregar
+   o valor =SET= pela primeira vez - não é importante.
+
+** A Little SC Formalism
+   Nós definimos SC (/Sequential Consistency/) mais precisamente agora. O formalismo de Weaver e Germond será usado - um método axiomático para especificar consistência - com
+   a seguinte notação: L(a) e S(a) representa um /load/ e um /store/, respectivamente, no endereço =a=. As ordens =<p= e =<m= definem ordem de programa e global de memória,
+   respectivamente. A ordem de programa =<p= é uma ordem total por /core/ que captura a ordem na qual cada /core/ executa logicamente (sequencialmente) operações de memória. A
+   ordem global de memória =<m= é uma ordem total das operações operações de memória de todos os cores.
+
+   Uma execução sequencialmente consistente requere o seguinte.
+
+   1. Todos os /cores/ inserem o seus /loads/ e /stores/ na ordem <m respeitando suas ordens de programa,
+      a despeito de serem para o mesmo ou para diferentes endereços (i.e., a = b ou a != b).Existem quatro
+      casos:
+      * Se L(a) <p L(b) => L(a) <m L(b)   /* Load->Load   */
+      * Se L(a) <p S(b) => L(a) <m S(b)   /* Load->Store  */
+      * Se S(a) <p S(b) => S(a) <m S(b)   /* Store->Store */
+      * Se S(a) <p L(b) => S(a) <m L(b)   /* Store->Load  */
+
+   2. Todo /load/ obtém seu valor do último /store/ antes dele (em ordem global de memória) para o mesmo
+      endereço:
+      *Valor de L(a) = Valor de MAX<m{S(a) | S(a) <m L(a)}*, onde MAX<m denota "mais recente na ordem de memória".
+
+   Instruções read-modify-write (RMW) atômicas restringem ainda mais execuções permitidas. Cada execução de uma instrução /test-and-set/, por exemplo, requere que o /load/ para o
+   /test/ e o /store/ para o /set/ apareçam logicamente de forma consecutiva na ordem de memória.
+
+   A tabela a seguir resume os requerimentos de ordenação da consistência sequencial. Ela especifica quais ordens de programa devem ser garantidas pelo modelo de consistência. Por
+   exemplo, se uma dada thread possui um /load/ antes de um /store/ em ordem de programa (i.e., /load/ é =Op1= e o /store/ é =Op2= na tabela), então a entrada na tabela nessa
+   intersecção é um "X" que denota que essas operações devem ser executadas em ordem de programa. Para a consistência sequencial, todas as operações de memória devem parecer executar
+   em ordem de programa.
+
+   | Op1\Op2 | Load | Store | RMW |
+   |---------+------+-------+-----|
+   | *Load*  | X    | X     | X   |
+   | *Store* | X    | X     | X   |
+   | *RMW*   | X    | X     | X   |
+
+   Uma *implementação SC* permite somente execuções SC. Estritamente falando, essa é a propriedade de /segurança/ (/safety/) para implementações SC (nenhum coisa ruim pode ocorrer).
+   Implementações SC também devem ter a propriedade de /vivacidade/ (/liveness/) (alguma coisa boa deve eventualmente ocorrer). Especificamente, um /store/ deve eventualmente tornar-se
+   visível para um /load/ que está repetidamente tentando carregar aquele local de memória. Essa propriedade, referida como propagação-de-escrita eventual, é tipicamente garantida
+   pelo protocolo de coerência.
+
+** A Basic SC Implementation With Cache Coherence
+   A coerência de cache facilita implementações SC que podem executar /loads/ e /stores/ não conflitantes - duas operações /conflitam/ se elas são no mesmo endereço e pelo menos uma
+   delas é um /store/ - completamente em paralelo.
+
+   Aqui, trataremos a coerência como uma caixa preta que implementa o invariante SWMR. Vamos fornecer alguma intuição de implementação abrindo a caixa preta um pouco para revelar caches
+   nível 1 (L1) que:
+
+   * Usam o estado /modified/ (M) para denotar um bloco L1 no qual um /core/ pode escrever e ler,
+   * Usam o estado /shared/ (S) para denotar um bloco L1 do qual um ou mais /cores/ somente podem ler, e
+   * Possuem =GetM= e =GetS= denotando requerimentos coerentes para obter um bloco em M e S, respectivamente.
+
+   A figura a seguir mostra um sistema coerente de memória. Cada /core/ realiza operações de memória uma de cada vez para o sistema coerente de memória em sua ordem de programa. O sistema
+   de memória satisfaz completamente cada requerimento antes de iniciar o próximo requerimento para o mesmo /core/. Cada /core/ se conecta a sua própria cache L1. O sistema de memória pode
+   responder a um /load/ ou /store/ para o bloco B se ele tem B com as permissões de coerência apropriadas (estado M ou S para /loads/ e M para /stores/). Mais ainda, o sistema de memória
+   pode responder a requerimentos de diferentes /cores/ em paralelo, dado que as caches L1 correspondentes possuem as permissões apropriadas.
+
+   #+BEGIN_EXAMPLE
+             C1     C2     C3     ...     Cn
+             |      |      |              |
+             v      v      v              v
+          ____________________________________
+          |                                  |
+          | L1$    L1$    L1$     ...    L1$ |
+          | ________________________________ |
+          | |                              | |
+          | | OUTROS COMPONENTES DO SISTEMA| |
+          | | DE MEMÓRIA COERENTE A CACHE  | |
+          | |______________________________| |
+          |__________________________________|
+            
+   #+END_EXAMPLE
+
+   A figura a seguir mostra os estados de cache antes que quatro /cores/ tentem realizar uma operação de memória cada. As quatro operações não conflitam, podem ser satisfeitas por suas
+   respectivas caches L1, e portanto podem ser realizadas de forma concorrente. Mais generalizadamente, operações que podem ser satisfeitas por caches L1 sempre podem ser realizadas de
+   forma concorrente porque o invariante de coerência SWMR garante que elas não são conflitantes.
+
+   #+BEGIN_EXAMPLE
+               C1           C2           C3           C4
+     store A,7 |  store B,9 |     load C |     load C |
+               v            v            v            v
+            ______________________________________________
+            |                                            |
+            | AM0          BM1          CS6          CS6 |
+            | __________________________________________ |
+            | |                                        | |
+            | |    OUTROS COMPONENTES DO SISTEMA DE    | |
+            | |    MEMÓRIA COERENTE A CACHE            | |
+            | |________________________________________| |
+            |____________________________________________|
+
+   #+END_EXAMPLE
+
+** Optimized SC Implementations with Cache Coherence
+   A maioria das implementações reais de /cores/ são mais complicadas que a nossa implementação SC básica com coerência de cache que acabamos de descrever.
+
+*** Non-Binding Prefetching
+    Um /non-binding prefetch/ para o bloco B é um requerimento para o sistema coerente de memória modificar o estado de coerência de B em uma ou mais caches. Mais comumente, /prefetches/ são
+    requeridas por software, /core/ hardware, ou pelo hardware de cache para modificar o estado de B na cache de nível um para permitir que /loads/ (e.g., o estado de B é M ou S) ou /loads/ e
+    /stores/ (o estado de B é M) ao enviar requerimentos de coerência tais como =GetS= e =GetM=. É importante notar que em nenhum caso um /non-binding prefetch/ modifica o estado de um registrador
+    ou de dados dentro do bloco B. O efeito da /non-binding prefetch/ é limitado ao bloco do "sistema coerente de memória". Enquanto os /loads/ e /stores/ forem realizados em ordem de programa,
+    não importa em qual ordem as permissões de coerência são obtidas.
+
+*** Speculative Cores
+    Considere um /core/ que executa instruções em ordem de programa, mas também faz predição de /branch/ nas quais instruções subsequentes, incluindo /loads/ e /stores/, iniciam a execução, mas
+    podem ser esmagadas (isto é, terem seus efeitos anulados) em uma predição de /branch/ incorreta. Pode-se fazer com que esses /loads/ e /stores/ esmagados tomem a aparência de /non-binding/
+    /prefetches/, permitindo que essa especulação esteja correta porque ela não possuirá efeito sob a consistência sequencial.
+
+*** Dynamically Scheduled Cores
+    Muitos /cores/ modernos escalonam dinamicamente a execução de instruções fora da ordem de programa para alcançar maior performance do que /cores/ com escalonamento estático que devem executar
+    instruções estritamente em ordem de programa. Um processador de /core/ único que usa escalonamento dinâmico ou fora-de-ordem(de programa) deve simplesmente garantir dependências de dados corretas
+    dentro do programa. Entretanto, no contexto de um processador /multicore/, o escalonamento dinâmico introduz um novo problema: especulação da consistência de memória. Considere um /core/ que
+    deseja reordenar dinamicamente a execução de dois /loads/, L1 e L2 (por exemplo, porque o endereço de L2 é computado antes do endereço de L1). Muitos /cores/ executarão especulativamente L2
+    antes de L1, e eles estão prevendo que essa reordenação não é visível para outros /cores/, o que violaria SC.
+
+    Especular em SC requere que o /core/ verifique que a previsão está correta.
+
+*** Non-Binding Prefetching in Dynamically Scheduled Cores
+    Um /core/ escalonado dinamicamente provavelmente encontrará /load/ e /store/ /misses/ fora da ordem de programa. Por exemplo, assuma que a ordem de programa é =Load A=, =Store B=, e =Store C=.
+    O /core/ pode iniciar /non-binding prefetches/ "fora de ordem", por exemplo, =GetM C= primeiro e depois =GetS A= e =GetM B= em paralelo. A consistência sequencial não é afetada pela ordem das
+    /non-binding prefetches/. SC requere somente que os /loads/ e /stores/ de um /core/ (pareçam) acessem sua cache nível um em ordem de programa. Coerência requere que blocos de cache nível um
+    estejam nos estados apropriados para receberem /loads/ e /stores/.
+
+    Destaca-se que, a consistência sequencial (ou qualquer outro modelo de consistência de memória):
+
+    * dite a ordem na qual /loads/ e /stores/ (pareçam) ser aplicadas à memória coerente mas
+    * NÃO dita a ordem da atividade de coerência.
+
+   -------------------------------------------------------------------------------------------------------------------------------------------------------------------
+   *Exercício 1.* Em um sistema que mantém consistência sequencial, um /core/ deve enviar requerimentos de coerência em ordem de programa. /Verdadeiro/ ou /Falso/?
+   *R.* Falso. Os /loads/ e /stores/ em si devem ser realizados em ordem de programa, mas os envios de requerimentos de coerência não precisam seguir uma ordem,
+        pois eles não possuem efeitos sob a consistência sequencial.
+
+   *Exercício 2.* O modelo de consistência de memória especifica as ordenações legais das transações de coerência. /Verdadeiro/ ou /Falso/?
+   *R.* Falso. O modelo de coerência de memória especifica somente as ordens nas quais /loads/ e /stores/ devem (parecer) serem executados na
+        memória coerente.
+   -------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+*** Multithreading
+    /Multithreading/ - em granularidade grossa, granularidade fina, ou ambas - pode ser acomodada por implementações SC. Cada /core multithreaded/ deve ser feito logicamente equivalente a múltiplos
+    (vitual) /cores/ compartilhando cada cache nível um através de um /switch/ onde a cache escolhe qual o próximo /core/ virtual que ela servirá. Mais ainda, cada cache pode servir múltiplo requerimentos
+    não conflitantes de forma concorrente porque ela pode fingir que eles foram servidos em alguma ordem.
+
+** Atomic Operations with SC
+   Para escrever código usando /multithreading/, um programador precisa ter formas de sincronizar as threads, e tal sincronização frequentemente envolve executar atomicamente pares de operações. Essa
+   funcionalidade é fornecida por instruções que realizam atomicamente um "read-modify-write" (RMW), tais como "/test-and-set/", "/fetch-and-increment/", e "/compare-and-swap/". Essas instruções
+   atômicas são críticas para que a sincronização possa ser feita apropriadamente e são usadas para implementar /spin-locks/ e outras primitivas de sincronização. Para que a RMW seja atômica, as
+   operações de leitura (/load/) e escrita (/store/) da RMW devem parecer consecutivas no ordem total de operações requerida pela consistência sequencial.
+
+   A implementação de instruções atômicas a nível de microarquitetura é conceitualmente simples, mas projetos ingênuos podem levar a performance ruim das instruções atômicas. Uma abordagem correta
+   porém simplística seria a fazer o /lock/ de todo o sistema de memória quando ocorressem suas operações.
+
+   Implementações mais agressivas da RMW obtêm vantagem do fato de que a consistência sequencial requere somente que haja uma *aparência* de uma ordem total de todos os requerimentos. Dessa forma, uma
+   RMW atômica pode ser implementada tendo primeiro um /core/ obtendo o bloco em estado M (/modified/, permissão de leitura e escrita) em sua cache, se o bloco já não estiver lá nesse estado. O /core/
+   então precisa somente fazer o /load/ e /store/ do bloco em sua cache - sem quaisquer mensagens de coerência ou travamento de barramentos - enquanto ele espera para servir quaisquer requerimentos de
+   coerência para o bloco até depois do /store/. Essa espera não pode provocar /deadlock/ porque é garantido que o /store/ completará.
+
+   -------------------------------------------------------------------------------------------------------------------------------------------------------------------
+   *Exercício 3.* Para realizar uma instrução /read-modify-write/ atômica, um /core/ deve sempre se comunicar com os outros /cores/. /Verdadeiro/ ou /Falso/?
+   *R.* Falso. Uma implementação simplística pode realizar um /lock/ do sistema de memória para realizar suas operações diretamente na memória, e depois fazer
+        o respectivo /unlock/. Com essa abordagem, a visibilidade de memória é garantida entre todos os /cores/ e não existe requerimento de coerência, por exemplo.
+   -------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+** Final Remarks
+   Nós seguimos Lamport e SPARC ao definir uma ordem total de todos os acessos à memória. Mas isso não é necessário. Lembre-se de que dois acessos /conflitam/ se eles são de threads diferentes,
+   acessam o mesmo local, e pelo menos um deles é um /store/ (ou RMW). Em vez de uma ordem total, podemos simplesmente definir as restrições sobre acessos conflitantes e deixar acessos não
+   conflitantes desordenados.
