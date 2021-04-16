@@ -55,7 +55,7 @@
 
    NASM por padrão gera opcodes para /short jumps/ a não ser que você diga explicitamente para usar /near jumps/.
 
-   #+BEGIN_SRC <ASM>
+   #+BEGIN_SRC nasm
    jne scan               ; Short jump, to within 127 bytes in either direction
    jne near scan          ; Near jump, anywhere in the current code segment (up to 2GB)
    #+END_SRC
@@ -82,3 +82,78 @@
 
     Frequentemente diz-se de um programa ou módulo contendo procedimentos ou variáveis declaradas como global /exporta/ esses itens. Similarmente,
     diz-se que um programa ou módulo que usa procedimentos ou variáveis que são externas a ele /importa/ esses itens.
+
+** Creating and Using Macros
+   Há mais de uma forma de dividir um programa em linguagem /assembly/ em partes mais fáceis de manter. Procedimentos são a forma mais óbvia.
+
+   Os principais /assemblers/ de hoje fornecem outra ferramento para gerenciamento de complexidade: /macros/. Enquanto procedimentos são implementados usando
+   instruções =CALL= e =RET= que fazem parte do própria conjunto de intruções a CPU, macros são um truque do /assembler/ e não dependem de nenhuma instrução ou
+   grupo de instruções em particular.
+
+   De forma simplificada, um macro é um rótulo que se refere a alguma sequência de linhas de texto. Essa sequência de linhas de texto pode ser (mas não é
+   necessariamente) uma sequência de instruções.
+
+   Quando o /assembler/ encontra o rótulo do macro em um arquivo de código-fonte, ele substitui o rótulo do macro pelas linhas de texto que o rótulo representa.
+
+*** The Mechanics of Macro Definition
+    Uma definição de macro se parece com uma definição de procedimento, enquadrada entre um par de diretivas especiais NASM: =%MACRO= e =%ENDMACRO=.
+
+    Uma limitação dos macros em relação aos procedimentos é que os macros podem ter somente um ponto de entrada.
+
+    A definição de um macro possui a forma:
+
+    #+BEGIN_SRC nasm
+    %macro macroname n
+    ...
+    %endmacro
+    #+END_SRC
+
+    onde =n= especifica a quantidade de parâmetros do macro. Os argumentos correspondentes aos parâmetros do macro são acessados por =%1=, =%2=, ..., dentro do
+    macro.
+
+    Os argumentos do macro podem ser passados como parâmetros para outros macros.
+
+*** Local Labels Within Macros
+    O código presente dentro de macros pode utilizar /jumps/ condicionais e não condicionais assim como código em procedimentos e no corpo do programa podem.
+    Entretanto, existe um problema importante com rótulos usados dentro de macros: rótulos em programas de linguagem /assembly/ devem ser únicos, mas um macro
+    é essencialmente duplicado no código fonte a cada vez que ele é invocado. Isso significa que ocorrerão mensagens de erro indicando rótulos duplicados ...
+    a não ser que os rótulos de um macro sejam tratados como locais.
+
+    Rótulos locais a um macro não são visíveis fora da definição do macro, o que significa que eles não podem ser referenciados exceto por código dentro dos
+    limites de =%MACRO ... %ENDMACRO=.
+
+    Todos os rótulos definidos dentro de um macro são considerados locais ao macro e são tratados de forma especial pelo /assembler/.
+
+    Vamos ver um exemplo:
+
+    #+BEGIN_SRC nasm
+    %macro UpCase 2               ; %1 = Address of buffer; %2 = # of Chars in buffer
+      mov edx,%1
+      mov ecx,%2
+    %%IsLC:
+      cmp byte [edx+ecx-1],'a'
+      jb %%Bump
+      cmp byte[edx+ecx-1],'z'
+      ja %%Bump
+      sub byte [edx+ecx-1],20h    ; Force byte to uppercase
+    %%Bump:
+      dec ecx
+      jnz %%IsLC
+    %endmacro
+    #+END_SRC
+
+    Um rótulo em um macro é local se ele inicia com dois símbolos de porcentagem: =%%=. Quando ele marca uma localização no macro, o rótulo local deve ser seguido
+    por dois pontos (=:=). Quando usado como um operando para uma instrução de /jump/ ou /call/ (como para =ja=, =jb=, e =jnz=), o rótulo local não é seguido.
+
+    Porque os rótulos devem de fato ser únicos dentro do programa, o NASM transforma um rótulo local como =%%Bump= em um rótulo que será único dentro do programa.
+    Ele faz isso usando o prefixo "..@" mais um número de quatro dígitos adicionalmente ao nome do rótulo.
+
+*** Macro Libraries As Include Files
+    Assim como procedimentos podem ser agrupados em módulos de bibliotecas externas ao seu programa, os macros também o podem. Uma /biblioteca de macros/ não é nada
+    mais que um arquivo de texto que contém o código-fonte para os macros da biblioteca. Diferentemente de procedimentos agrupados em um módulo, bibliotecas de macros
+    não são /montadas/ separadamente e devem ser passadas pelo /assembler/ toda vez que o programa for montado.
+
+    Bibliotecas de macros são usadas quando você as "inclui" em seu programa. A forma de fazer isso é com a diretiva =%INCLUDE=. Essa diretiva precede o nome da
+    biblioteca de macro:
+
+    =%include "mylib.mac"=
