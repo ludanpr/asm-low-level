@@ -1,0 +1,139 @@
+* Capítulo 11 - Strings and Things
+  As instruções de /string/ x86 são capazes de tratar de longas sequências de /bytes/, /words/, /dwords/ na memória de uma só vez.
+  (Na linguagem /assembly/, qualquer sequência contígua de bytes na memória pode ser considerada uma /string/).
+
+** The Notion of an Assembly Language String
+   Em uma visão geral, uma /string/ é qualquer grupo de bytes contíguos na memória, de tamanho arbitrário, que o sistema operacional
+   permite. O conceito primário de definição de uma /string/ em linguagem /assembly/ é que os seus /bytes/ componentes estão contíguos,
+   sem interrupções.
+
+   Em assembly, nós devemos pensar em uma /string/ em termos dos valores de registrador que as define. Você tem uma /string/ quando você
+   coloca o seu endereço em um registrador. E uma vez que o registrador aponte para a /string/, o tamanho dessa /string/ é definido pelo
+   valor que você coloca no registrador =ECX=.
+
+** Source Strings and Destination Strings
+   Existem dois tipos de /strings/ em assembly x86. /Strings fonte/ são /strings/ das quais você lê. /Strings destino/ são /strings/ para
+   as quais você escreve. A diferença entre as duas é somente uma questão de registradores; /strings/ fonte e /strings/ destino podem ter
+   intersecção. De fato, a mesma região de memória pode ser ambas uma /string/ fonte e uma /string/ destino, ao mesmo tempo.
+
+   As suposições que a CPU faz ao executar uma instrução de /string/ em modo protegido 32-bit:
+
+   * Uma /string/ fonte é apontada por =ESI=.
+   * Uma /string/ destino é apontada por =EDI=.
+   * O tamanho de ambos os tipos de /string/ é o valor que você coloca em =ECX=. Como a
+     CPU age sobre esse tamanho depende da instrução específica e como ela está sendo usada.
+   * Dados vindo de uma /string/ fonte ou indo para uma /string/ destino devem iniciar,
+     terminar, ou passar, pelo registrador =EAX=.
+
+** REP STOSB, the Software Machine Gun
+
+*** Machine-Gunning the Virtual Display
+    Quando o Linux carrega os programas na memória, ele tipicamente limpa variáveis não inicializadas (como =VidBuff= no exemplo em =vidbuff1.asm=)
+    sobrescrevendo-as com zeros binários. Mas os zeros binários não são exibidos corretamente no console. Para dar a aparência de "espaço em branco"
+    no console, a memória do /buffer/ que será exibido deve ser escrita com o caractere ASCII de espaço (=27= ou =20h=).
+
+    A maneira mais simples de fazer isso é colocando o endereço do buffer que será exibido em =EDI=, o número de bytes no buffer em =ECX=, e o valor
+    do caractere ASCII em =AL=, e codificar um /loop/ da seguinte forma:
+
+    #+BEGIN_SRC nasm
+    Clear:
+      mov byte [edi],al
+      inc edi
+      dec ecx
+      jnz Clear
+    #+END_SRC
+
+    Isso até é toleravelmente rápido, mas esse código é equivalente a:
+
+    #+BEGIN_SRC nasm
+    rep stosb
+    #+END_SRC
+
+    A instrução =STOSB= é a mais simples das instruções de /string/. A instrução mostrada acima possui duas partes. =REP= é chamado de /prefixo/, e ele
+    modifica como a CPU trata o mnemônico da instrução que o segue.
+
+    O mnemônico =STOSB= significa *STOre String by Byte*. =STOSB= funciona somente na /string destino/. As suposições feitas pela CPU quando do uso de
+    =STOSB= são:
+
+    * =EDI= deve estar armazenando o endereço da /string destino/.
+    * =ECX= deve estar armazenando o número de vezes que o valor em =AL= será colocado na /string/.
+    * =AL= deve estar armazenando o valor a ser armazenado na /string/.
+
+    *Em resumo, REP STOSB escreverá o valor em AL por ECX vezes no endereço apontado por EDI.*
+
+*** Executing the STOSB Instruction
+    Uma vez que você tenha arranjado da forma descrita anteriormente os registradores =EDI=, =ECX=, e =AL=, você pode executar com segurança a instrução
+    =STOSB=. Quando executada, é isso o que acontece:
+
+    1. O valor do byte em =AL= é copiado para o endereço de memória armazenado em =EDI=.
+    2. =EDI= é incrementado em 1, tal que ele agora aponta para o próximo byte na memória
+       seguindo o que acaba de ser escrito.
+
+    Note que nós ainda não estamos "metralhando" (/machine-gunning/) nada ainda. /Uma/ cópia de =AL= é copiada para /uma/ localização na memória.
+
+    Um ponto importante a se lembrar é que =ECX= não é decrementado por =STOSB=. =ECX= é decrementado automaticamente *somente* se você usar o prefixo =REP=
+    com =STOSB=.
+
+    Então, você não pode fazer =STOSB= executar automaticamente se não usar o prefix =REP=.
+
+    O que o prefixo =REP= faz é simples: ele faz o arranjo de um /loop/ muito eficiente completamente /dentro/ da CPU, e escreve cópias de =AL= para a memória
+    repetidamente, incrementando =EDI= por 1 e decrementando =ECX= em 1 a cada vez, até que =ECX= atinja o valor 0.
+
+    É exatamente isso que essa parte do código faz:
+
+    #+BEGIN_SRC nasm
+    cld                   ; clear DF
+    mov al,FILLCHR
+    mov edi,VidBuff
+    mov ecx,VIDBUFFLEN
+    rep stosb
+    #+END_SRC
+
+*** STOSB and the Direction Flag
+    A instrução =CLD= controla algo crucial ao trabalharmos com instruções de /string/, que é a direção que a operação de /string/ segue na memória.
+
+    É possível arranjar para que a direção de memória que a instrução =STOSB= quando executada automaticamente siga seja crescente ou decrescente. Isto é, se
+    queremos caminhar na memória de um endereço menor para um endereço maior (incrementando =EDI=) ou de um endereço maior para um endereço menor (decrementando
+    =EDI=).
+
+    A direção de memória que =STOSB= seguirá é controlada pela /flag de direção/ (/Direction Flag/) no registrador =EFLAGS=.
+
+    Quando DF está em /set/, =STOSB= e as outras instruções de /string/ que possuem o mesmo comportamento caminharão na memória de um endereço maior para um
+    endereço menor, decrementando =EDI=. Quando DF está em /clear/, essas instruções caminharão na memória de um endereço menor para um endereço maior, incrementando
+    =EDI=.
+
+    A instrução =CLD= faz o /clear/ de DF, e a instrução =STD= faz o /set/ de DF.
+
+** The Semiautomatic Weapon: STOSB without REP
+   =STOSB=, sem o prefixo =REP=, pode ser utilizado para armazenar valores diferentes de =AL= (no caso de o programador modificar =AL= a cada passagem do laço) em =EDI=.
+
+*** The LOOP Instructions
+    Com isso em mente, considere a seguinte instrução /assembly/ =loop=.
+
+    #+BEGIN_SRC nasm
+    DoChar:
+      stosb
+
+      add al,'1'
+      aaa                   ; Adjust AX to make this BCD addition
+      add al,'0'            ; Put binary 3 in AL's high nybble
+
+      dec ecx
+      jnz DoChar
+    #+END_SRC
+
+    Note que esse código faz o que foi sugerido anteriormente, modifica =AL= a cada passagem do laço e usa =STOSB= sem o prefixo =REP=.
+
+    O mesmo comportamento desse código pode ser implementado com a instrução =LOOP=. Essa instrução combina o decremento de =ECX= com um teste e /jump/ baseado em ZF (Zero Flag):
+
+    #+BEGIN_SRC nasm
+    DoChar:
+      stosb
+      add al,'1'
+      aaa
+      add al,'0'
+      loop DoChar
+    #+END_SRC
+
+    A instrução =loop= primeiro decrementa =ECX= em 1. Ela então verifica ZF para ver se a operação de decremento forçou =ECX= para o valor zero. Se esse for o caso, ela permite
+    a sequência para a próxima instrução. Se não, =loop= faz o /jump/ para o rótulo especificado como seu operando.
