@@ -1,0 +1,198 @@
+* Capítulo 4 - Total Store Order and the x86 Memory Model
+  Um modelo de consistência de memória amplamente implementado é o /total store order/ (TSO). O TSO foi primeiro introduzido
+  nos processadores SPARC e aparece como o modelo de consistência de memória da arquitetura x86.
+
+** Motivation for TSO/x86
+   Os /cores/ de processador há muito usam /write/ (/store/) /buffers/ para manter /stores/ que já foram realizados (/committed/,
+   /retired/) até que o resto do sistema de memória possa processar esses /stores/. Um /store/ entra no /buffer de escrita/ quando
+   o /store/ é realizado, e um /store/ sai do buffer de escrita quando o bloco a ser escrito está na /cache/ em um estado de
+   coerência de leitura-escrita. É importante notar que um /store/ pode entrar no buffer de escrita antes que a cache tenha obtido
+   permissões de coerência de leitura-escrita para o bloco a ser escrito; portanto o buffer de escrita esconde a latência no serviço
+   de um /store miss/. Porque /stores/ são comuns, poder evitar a parada na maioria deles é um benefício importante.
+
+   Para um processador de /core/ único, um buffer de escrita pode ser feito arquiteturalmente invisível ao garantir que um /load/ para
+   o endereço A retorna o valor do /store/ mais recente para A mesmo se um ou mais /stores/ para A estão no buffer de escrita. Isso é
+   tipicamente feito ou /ignorando/ (/bypassing/) o valor do /store/ mais recente para A para o /load/ de A, onde "mais recente" é
+   determinado pela ordem de programa, ou parando um /load/ de A se um /store/ para A está no buffer de escrita.
+
+   Ao construir um processador /multicore/, pode parecer natural usar vários /cores/, cada um com seu próprio buffer de escrita /bypassing/,
+   e assumir que os buffers de escrita continuam a ser arquiteturalmente invisíveis. Mas essa suposição está errada.
+
+   | Core C1      | Core C2      | Comments                         |
+   |--------------+--------------+----------------------------------|
+   | S1: x = NEW; | S2: y = NEW; | //* Initially, x = 0 & y = 0 *// |
+   | L1: r1 = y;  | L2: r2 = x;  |                                  |
+
+   Considere o exemplo na tabela. Assuma que um processador /multicore/ com /cores/ em ordem, onde cada /core/ possui um buffer de escrita
+   de entrada única e executa o código na seguinte sequência:
+
+   * O core C1 executa o /store/ S1, mas coloca o valor =NEW= que acaba de ser armazenado em
+     seu buffer de escrita.
+   * O core C2 executa o /store/ S2 e coloca o seu valor =NEW= que acaba de ser armazenado
+     em seu buffer de escrita.
+   * Agora, ambos os /cores/ executam seus respectivos /lods/, L1 e L2, e obtêm os valores
+     antigos =0=.
+   * Por fim, ambos os buffers de escrita dos /cores/ atualizam a memória com os valores novos
+     =NEW=.
+
+   O resultado é que =(r1, r2) = (0, 0)=. Como já vimos, essa é uma execução que é proibida pela consistência sequencial. Sem buffers de
+   escrita, o hardware é SC, mas com buffers de escrita, não é, fazendo os buffers de escrita arquiteturalmente visíveis em um processador
+   multicore.
+
+   A opção escolhida por SPARC e depois pelos x86 para essa questão foi abandonar a consistência sequencial em favor de um modelo de consistência
+   de memória que permite um uso direto de buffers de escrita FIFO em cada /core/. O novo modelo, /total store order/ (TSO), permite o resultado
+   =(r1, r2) = (0, 0)=. De fato, esse modelo se comporta como SC para a maior parte dos idiomas de programação e é bem definido em todos os casos.
+
+** Basic Idea of TSO/x86
+   Conforme a execução procede, a consistência sequencial requere que cada /core/ preserve a ordem de programa de seus /loads/ e /stores/ para
+   todas as quatro combinações de operações consecutivas:
+
+   * Load -> Load
+   * Load -> Store
+   * Store -> Store
+   * Store -> Load (incluído para SC mas omitido para TSO)
+
+   /Total Store Order/ inclui as primeiras três restrições mas não a quarta.
+
+   Generalizando, o modelo de consistência de memória TSO se comporta da mesma forma que a SC para os idiomas de programação comuns a seguir:
+
+   * C1 faz o /load/ e o /store/ para as localizações de memória D1, ..., Dn (frequentemente dados),
+   * C1 faz o /store/ para F (frequentemente uma /flag/ de sincronização) para indicar que o trabalho
+     acima está completo,
+   * C2 faz o /load/ de F para observar que o trabalho acima está completo (algumas vezes fazendo o
+     /spinning/ primeiro e frequentemente usando uma instrução /read-modify-write/), e
+   * C2 faz o /load/ e o /store/ para alguma ou todas as localizações de memória D1, ..., Dn.
+
+   De qualquer forma, o TSO permite algumas execuções não-SC.
+
+   A omissão da quarta restrição (Store -> Load) permite que cada /core/ possua use um buffer de escrita. Note que a terceira restrição (Store -> Store)
+   significa que o buffer de escrita deve ser FIFO (e não, /coalescing/, por exemplo) para preservar a ordem store-store.
+
+   O TSO permite alguns resultados de execuções que não são intuitivos. A tabela a seguir ilustra uma versão modificada de um exemplo já abordado na qual
+   os cores C1 e C2 fazem cópias locais de =x= e =y=, respectivamente.
+
+   | Core C1      | Core C2      | Comments                         |
+   |--------------+--------------+----------------------------------|
+   | S1: x = NEW; | S2: y = new; | //* Initially, x = 0 & y = 0 *// |
+   | L1: r1 = x;  | L3: r3 = y;  |                                  |
+   | L2: r2 = y;  | L4: r4 = x;  | //* Assume r2 = 0 & r4 = 0 *//   |
+
+   Muitos programadores podem assumir que se =r2 = 0 & r4 = 0=, então =r1 = 0 & r3 = 0= também, porque os /stores/ S1 e S2 devem ser inseridos em ordem de
+   memória depois dos /loads/ L2 e L4. Entretanto, existe execução na qual r1 e r3 recebem o /bypass/ do valor =NEW= dos buffers de escrita de cada /core/
+   respectivo, resultando em =(r1, r3) = (NEW, NEW)= e =(r2, r4) = (0, 0)=.
+
+   De fato, para preservar uma semântica sequencial de thread única, cada /core/ deve enxergar o efeito de seu próprio /store/ em ordem de programa, mesmo
+   que o /store/ ainda não possa ser observado por outros /cores/. Por isso, sob todas as execuções TSO, as cópias locais =r1= e =r3= sempre serão atribuídas
+   com o valor =NEW=.
+
+** A Little TSO/x86 Formalism
+   A definição mais precisa de TSO só requere três modificações em relação à definição de SC.
+
+   Uma *execução TSO* requere o seguinte:
+
+   1. Todos os /cores/ insiram os seus /loads/ e /stores/ na ordem de memória <m respeitando sua ordem de programa, independentemente se elas são para o mesmo ou
+      para endereços diferentes. Esses são os quatro casos:
+
+      * Se L(a) <p L(b) => L(a) <m L(b) //* Load -> Load *//
+      * Se L(a) <p S(b) => L(a) <m S(b) //* Load -> Store *//
+      * Se S(a) <p S(b) => S(a) <m S(b) //* Store -> Store *//
+
+   2. Todo /load/ obtém seu valor do último /store/ antes dele para o mesmo endereço:
+
+      *Valor de L(a) = Valor de MAX<m{S(a) | S(a) <m L(a) v S(a) <p L(a)}*, onde MAX <m denota "mais recente na ordem de memória".
+
+      Note que a adição de *S(a) <p L(a)* implica a necessidade de /bypassing/. Essa equação nos diz que o valor de um /load/ é o valor do último /store/ para o
+      mesmo endereço que está ou (a) antes dele em ordem de memória, ou (b) antes dele em ordem de programa (mas possivelmente depois em ordem de memória), com a
+      opção (b) tendo precedência (isto é, /bypassing/ de buffer de escrita sobrescreve o resto do sistema de memória).
+
+   3. A parte (1) deve ser estendida para definir FENCEs:
+
+      * Se L(a) <p FENCE => L(a) <m FENCE //* Load -> FENCE *//
+      * Se S(a) <p FENCE => S(a) <m FENCE //* Store -> FENCE *//
+      * Se FENCE <p FENCE => FENCE <m FENCE //* FENCE -> FENCE *//
+      * Se FENCE <p L(a) => FENCE <m L(a) //* FENCE -> Load *//
+      * Se FENCE <p S(a) => FENCE <m S(a) //* FENCE -> Store *//
+
+      Porque o modelo TSO já requere todas menos a ordem Store->Load, pode-se alternativamente definir TSO FENCEs ordenando somente:
+
+      * Se S(a) <p FENCE => S(a) <m FENCE //* Store -> FENCE *//
+      * Se FENCE <p L(a) => FENCE <m L(a) //* FENCE -> Load *//
+
+        
+   As regras de ordenação do TSO são resumidas na tabela a seguir. Essa tabela possui duas diferenças importantes em relação à tabela análoga para a SC. Primeiro, se
+   =Op1= é um /store/ e =Op2= é um /load/, a entrada na intersecção é um "B" em vez de um "X"; se essas operações são para o mesmo endereço, o /load/ deve obter o valor
+   que acaba de ser armazenado mesmo se as operações entram em ordem de memória fora de ordem de programa. Segundo, a tabela inclui FENCEs, que não são necessárias sob
+   SC.
+
+   | Op1\Op2 | Load | Store | RMW | FENCE |
+   |---------+------+-------+-----+-------|
+   | *Load*  | X    | X     | X   | X     |
+   | *Store* | B    | X     | X   | X     |
+   | *RMW*   | X    | X     | X   | X     |
+   | *FENCE* | X    | X     | X   | X     |
+
+   *Tabela 1.* Regras de ordem TSO. Um "X" denota uma ordem garantida. Um "B"
+   denota que /bypassing/ é requerido se as operações são para o mesmo endereço.
+
+   É uma crença amplamente espalhada que o modelo de memória x86 é equivalente ao TSO (para memória /cacheable/ normal e instruções normais), mas até onde sabemos, nem
+   AMD nem Intel garantiram isso ou liberaram uma especificação formal do modelo de memória x86.
+
+** Implementing TSO/x86
+   A implementação de TSO é similar a SC com a adição de /buffers/ de escrita FIFO por /core/.
+
+   Por isso, com exceção do /buffer/ de escrita, toda a discussão sobre a implementação de SC se mantém para TSO e fornece uma forma de construir implementações TSO.
+
+   Por sim, /multithreading/ introduz um pequeno problema sobre o /buffer/ de escrita para TSO. Os /buffers/ de escrita do TSO são logicamente privados dentro do
+   contexto de cada /thread/ (/core/ virtual). Por isso, em um /core multithreaded/, um contexto de thread não deveria nunca sofrer /bypass/ do buffer de escrita de
+   outro contexto de thread. Essa separação lógica pode ser implementada com buffers de escrita por-contexto-de-thread ou, mais comumente, usando um buffer de escrita
+   compartilhado com entradas marcadas por identificadores de contexto de thread que permitem o /bypass/ somente quando as marcações coincidem.
+
+   -----------------------------------------------------------------------------------------------------------------------
+   *Exercício 4.* Em um sistema TSO com /cores multithreaded/, as threads podem fazer /bypass/ de valores fora do buffer
+   de escrita, a despeito de qual thread escreveu o valor. /Verdadeiro/ ou /Falso/?
+   *R.* Falso. Uma thread pode fazer /bypass/ de valores que ela mesmo escreveu, mas outras threads podem não enxergar o
+   valor até que o /store/ tenha sido inserido na ordem de memória.
+   -----------------------------------------------------------------------------------------------------------------------
+
+*** Implementing Atomic Instructions
+    Os problemas de implementação para instruções RMW atômicas em TSO são similares àqueles para instruções atômicas sob SC. A diferença chave é que TSO permite que /loads/
+    passem (sejam ordenados antes de) /stores/ anteriores que fizeram escrita para um buffer de escrita. O impacto sobre RMWs é que a "escrita" (/store/) pode ser escrita
+    para o buffer de escrita.
+
+    A parte de /load/ da instrução RMW não pode passar /loads/ anteriores devido às regras de ordenação do modelo TSO. De início pode parecer que a parte de /load/ do RMW
+    poderia passar /stores/ anteriores no buffer de escrita, mas isso não é legal. Se a parte de /load/ do RMW passar um /store/ anterior, então a parte de /store/ do RMW
+    também teria que passar o /store/ anterior porque o RMW é um par atômico. Mas porque /stores/ não podem passar um ao outro sob o modelo TSO, a parte de /load/ do RMW
+    também não pode passar um /store/ anterior.
+
+    Essas restrições de ordenação sobre RMWs impactam a implementação. Porque a parte de /load/ do RMW não pode ser realizada até que /stores/ anteriores tenham sido ordenados
+    (isto é, tenham saído do buffer de escrita), o RMW atômico efetivamente esgota o buffer de escrita antes que ele possa realizar a parte de /load/ do RMW. Mais ainda, para
+    garantir que a parte de /store/ possa ser ordenada imediatamente depois da parte de /load/, a parte de /load/ requere permissões de coerência de leitura-escrita, não somente
+    permissões de leitura que bastam para /loads/ normais. Por último, para garantir atomicidade para o RMW, o controlador de cache não pode renunciar permissão de coerência para
+    o bloco entre o /load/ e o /store/.
+
+    Implementações mais otimizadas dos RMWs são possíveis.
+
+*** Implementing FENCES
+    Sistemas que suportam TSO não fornecem ordenação entre um /store/ e um /load/ subsequente (em ordem de programa), apesar de eles requererem que o /load/ obtenha o valor do
+    /store/ anterior. Em situações nas quais o programador quer que essas instruções sejam ordenadas, o programador deve especificar explicitamente essa ordenação colocando uma
+    instrução FENCE entre o /store/ e o /load/ subsequente. A semântica da FENCE especifica que todas as instruções antes da FENCE em ordem de programa devem ser ordenadas antes
+    quaisquer intruções após a FENCE em ordem de programa.
+
+    Porque o TSO permite somente um tipo de reordenação, FENCEs são infrequentes e a implementação de instruções FENCE não é tão crítica. Uma implementação simples - tal como
+    esgotar o buffer de escrita quando uma FENCE é executada e não permitir que /loads/ subsequentes sejam executados até que uma FENCE anterior tenha completado - pode fornecer
+    uma performance aceitável.
+
+    Entretanto, para modelos de consistência que permitem muito mais reordenações, instruções FENCE são mais frequentes e suas implementações podem ter um impacto significante
+    na performance.
+
+** Comparing SC and TSO
+   Como SC, TSO, etc., se relacionam?
+
+   * *Execuções*: As execuções SC são um subconjunto próprio das execuções TSO; todas as execuções SC
+     são execuções TSO, enquanto existem execuções TSO que não são execuções SC.
+   * *Implementações*: As implementações seguem as mesmas regras: implementações SC são um subconjunto
+     próprio de implementações TSO.
+
+   Generalizando, um modelo de consistência de memória Y é estritamente mais /relaxado/ (/mais fraco/) que um modelo de consistência de memória X se todas as execuções X também são
+   execuções Y, mas não o contrário. Se Y é mais relaxado que X, também segue-se que todas as implementações X são também implementações Y. Também é possível que dois modelos de
+   consistência de memória não sejam comparáveis porque ambos permitem execuções proibidas no outro.
