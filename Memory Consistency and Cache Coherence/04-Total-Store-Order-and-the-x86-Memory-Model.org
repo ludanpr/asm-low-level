@@ -150,7 +150,7 @@
    -----------------------------------------------------------------------------------------------------------------------
    *Exercício 4.* Em um sistema TSO com /cores multithreaded/, as threads podem fazer /bypass/ de valores fora do buffer
    de escrita, a despeito de qual thread escreveu o valor. /Verdadeiro/ ou /Falso/?
-   *R.* Falso. Uma thread pode fazer /bypass/ de valores que ela mesmo escreveu, mas outras threads podem não enxergar o
+   *R.* Falso. Uma thread pode fazer /bypass/ de valores que ela mesmo escreveu, mas outras threads não podem enxergar o
    valor até que o /store/ tenha sido inserido na ordem de memória.
    -----------------------------------------------------------------------------------------------------------------------
 
