@@ -178,8 +178,8 @@ WrtHB:
 ;              Note that the Show procedure must be called
 ;              after Ruler to display the ruler on the console.
 ;
-; Input: * 1-based X position (row number) is passed in EBX
-;        * 1-based Y position (column number) is passed in EAX
+; Input: * 1-based Y position (row number) is passed in EBX
+;        * 1-based X position (column number) is passed in EAX
 ;        * Length of the ruler in characters is passed in ECX
 ;
 Ruler:

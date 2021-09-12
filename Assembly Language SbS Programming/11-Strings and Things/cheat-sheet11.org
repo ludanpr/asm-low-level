@@ -137,3 +137,5 @@
 
     A instrução =loop= primeiro decrementa =ECX= em 1. Ela então verifica ZF para ver se a operação de decremento forçou =ECX= para o valor zero. Se esse for o caso, ela permite
     a sequência para a próxima instrução. Se não, =loop= faz o /jump/ para o rótulo especificado como seu operando.
+
+    
