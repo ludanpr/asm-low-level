@@ -239,15 +239,12 @@ Ruler:
   ; ruler is to begin. Now we display the ruler, starting at that
   ; position
   mov rbp,Rler
-goStartRler:
-  mov rbx,0
+  xor rbx,rbx
 DoChar:
-  cmp rbx,10
-  je goStartRler
-
   mov al,byte [rbp+rbx]
   stosb
-  add rbx,1
+  inc rbx
+  and rbx,RLERLEN-1             ; effect of increment modulo RLERLEN (only powers of 2)
   loop DoChar
 
   pop rbp
@@ -256,7 +253,8 @@ DoChar:
   pop rbx
   pop rax
   ret
-Rler db "1234567890"
+Rler    db "0123456789ABCDEF"
+RLERLEN equ $-Rler
 
 ;-----------------------------------------------------------
 ; MAIN
