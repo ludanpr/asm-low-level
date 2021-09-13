@@ -138,4 +138,125 @@
     A instrução =loop= primeiro decrementa =ECX= em 1. Ela então verifica ZF para ver se a operação de decremento forçou =ECX= para o valor zero. Se esse for o caso, ela permite
     a sequência para a próxima instrução. Se não, =loop= faz o /jump/ para o rótulo especificado como seu operando.
 
+*** Displaying a Ruler on the Screen
+    Como uma demonstração útil de quando faz sentido usar =STOSB= sem =REP= (mas com =LOOP=), nós escrevemos =Ruler=.
+
+    O procedimento =Ruler= exibe uma sequência repetida de dígitos ascendentemente iniciando de =1=, de qualquer tamanho, em alguma localização selecionada da tela.
+
+    O procedimento =Ruler= permite que você especifique quão longa é a sequência exibida, em dígitos, e onde na tela ela será exibida.
+
+    Uma chamada típica para =Ruler= é algo como:
+
+    #+BEGIN_SRC nasm
+    mov eax,1              ; Load Y position
+    mov ebx,1              ; Load X position
+    mov ecx,COLS-1         ; Load ruler length (-1 because of EOL)
+    call Ruler
+    #+END_SRC
+
+    Essa chamada posiciona a sequência no canto superior esquerdo do /display/, iniciando na posição 1,1.
     
+*** MUL Is Not IMUL
+    O procedimento =Ruler= usa =MUL= para calcular uma posição X,Y no /buffer/ de exibição onde =STOSB= pode iniciar a colocar os caracteres da sequência.
+
+    Você deve mover =Y= linhas para baixo no /buffer/ da tela, e depois mover =X= /bytes/ a partir da margem esquerda na tela para chegar à posição =X,Y=. O cálculo é feito dessa
+    forma dentro do procedimento =Ruler=:
+
+    #+BEGIN_SRC nasm
+    mov edi,VidBuff
+    dec eax                ; Adjust Y value down by 1 for address calculation
+    dec ebx                ; Adjust X value down by 1 for address calculation
+    mov ah,COLS            ; Assumes Y position fits in 8-bit AL
+    mul ah                 ; 8-bit multiply AL*AH to AX
+    lea edi,[edi+eax]      ; Add Y offset into VidBuff
+    lea edi,[edi+ebx]      ; Add X offset into VidBuff
+    #+END_SRC
+
+    Para uma multiplicação de valores de 8 bits usando =MUL=, um dos fatores é implícito: =AL= contém o valor =Y=, e o chamador passa para =Ruler= o valor =Y= em =EAX=. Nós colocamos
+    a largura da tela em =AH=, e depois multiplicamos =AH*AL= com =MUL=. O produto substitui o valor de ambos =AL= e =AH=, e é acessado como o valor em =AX=.
+
+    Agora, existe um /bug/ bastante comum: =MUL= não é =IMUL= - a maior parte do tempo. =MUL= trata os valores de seus operandos como valores sem sinal, enquanto =IMUL= trata seus
+    operandos como valores com sinal. Essa diferença não importa enquanto ambos os valores são positivos em um contexto com sinal. Em termos práticos para uma multiplicação de
+    8 bits, =MUL= e =IMUL= funcionam de forma idêntica em valores 127 ou menos. No valor 128 tudo muda. Valores acima de 127 são considerados negativos em um contexto de 8 bits com
+    sinal. =MUL= considera 128 como 128. =IMUL= considera 128 como -1.
+
+*** Adding ASCII Digits
+    Imediatemente antes da instrução =STOSB=, nós carregamos o dígito ASCII ='1'= em =AL=. Note que ='1'= em =MOV AL,'1'= é um caractere ASCII, com valor numérico =31h=.
+
+    Isso se torna um problema imediatamente após armazenarmos o dígito ='1'= na memória de vídeo com =STOSB=. Depois do dígigo ='1'= nós precisamos armazenar o dígito ='2'= - e para
+    fazê-lo, nós precisamos mudar o valor em =AL= de ='1'= para ='2'=.
+
+    Uma adição simples não funcionará. Então a instrução =AAA= (/Adjust AL after BCD Addition/) entra em cena.
+
+    O que =AAA= faz é permitir que nós adicionemos dígitos ASCII de fato, em vez de valores numéricos. =AAA= é uma de uma grupo de instruções chamado de instruções BCD, assim chamado
+    por suportar aritmético com valores /Binary Coded Decimal/ (BCD).
+
+    O valor =31h= é um valor BCD válido, porque o /nybble/ menor contém =1=. BCD é um sistema numérico de 4 bits, e o /nybble/ maior é ignorado.
+
+    =AAA= basicamente faz duas coisas:
+
+    * Força o valor nos 4 bits menores de =AL= para um valor entre 0 e 9 se eles são maiores
+      que 9. Isso é feito adicionando 6 a =AL= e depois forçando o /nybble/ alto de =AL= para
+      0.
+    * Se o valor em =AL= teve que ser ajustado, isso indica que houve um /carry/ na adição, e
+      por isso =AH= é incrementado. =CF= e =AF= recebem um /set/.
+
+    Isso permite que nós adicionomes dígitos ASCII tais como =1= e =2= usando a instrução =ADD=. =Ruler= faz isso imediatamente depois da instrução =STOSW=:
+
+    #+BEGIN_SRC nasm
+    add al,'1'
+    aaa
+    #+END_SRC
+
+    Se antes da adição os conteúdos do menor /nybble/ de =AL= fosse =9=, adicionar =1= geraris o valor =0AH=, que não é um valor BCD válido. =AAA= então ajustaria =AL= adionando 6 a
+    =AL= e fazendo o /clear/ do maior /nybble/. Adicionar 6 a =0AH= resulta em =10H=, e quando o maior /nybble/ recebe um /clear/, o resultado é =OH=. =AH= seria incrementado em 1.
+
+*** Adjusting AAA's Adjustments
+    Ainda há um problema: =AAA= faz o /clear/ do maior /nybble/. Isso significa que adicionar ='1'= e ='1'= não gerará ='2'= . Em vez disso, =AL= torna-se 2 binário. Para fazer
+    dos conteúdos de =AL= um dígito ASCII exibível novamente, nós devemos adicionar =30h= a =AL=. Isso é fácil, apenas adicione =0= a =AL=, que possui o valor numérico =30H=. Então,
+    adicionar =0= faz =02h= de volta para =32h=, que é o valor numérico equivalente ao dígito ASCII ='2'= . Essa é a razão para a instrução =ADD AL,'0'=.
+
+*** 16-bit and 32-bit Versions of STOS
+    Há três "tamanhos" diferentes da instrução de /string/ =STOS=: /byte/, /word/, e /dword/. =STOSB= é a versão de tamanho de /byte/. =STOSW= armazena o valor de 16 bits em =AX= na
+    memória, e =STOSD= armazena o valor de 32 bits em =EAX= na memória.
+
+    =STOSW= e =STOSD= praticamente da mesma forma que =STOSB=. A maior diferença mora na forma como =EDI= é modificado depois de cada operação de transferência de memória. Para
+    =STOSW=, =EDI= muda por dois /bytes/ (para cima ou para baixo dependendo de =DF=). Para =STOSD=, =EDI= muda por 4 /bytes/.
+
+** MOVSB: Fast Block Copies
+   Assim como as instruções =STOS=, =MOVS= vêm em três "tamanhos": para tratar de /bytes/ (=MOVSB=), palavras de 16 bits (=MOVSW=), e /dwords/ de 32 bits (=MOVSD=).
+
+   O funcionamento da instrução =MOVSB= é da seguinte forma: um bloco de memória no endereço armazenado em =ESI= é copiado para armazenado em =EDI=. O número de /bytes/ a serem
+   movidos deve ser colocado no registrador =ECX=. =ECX= é decrementado depois que cada /byte/ é copiado, e os endereços em =ESI= e =EDI= são ajustados em 1. Esses ajustes são ou
+   decrementos ou incrementos, dependendo do estado de =DF=.
+
+   =MOVSB= pode operar semiautomaticamente ou automaticamente, assim como =STOSB=. Se o prefixo =REP= é adicionado a =MOVSB=, então (assumindo que seus registradores estão com os
+   valores corretos) um bloco de memória será copiado de um para outro em apenas uma instrução.
+
+*** DF and Overlapping Block Moves
+    Nada obriga que =ESI= e =EDI= apontem para áreas inteiramente separadas da memória. Os blocos de memória fonte e destino podem ter intersecção, e isso frequentemente pode ser
+    muito útil.
+
+** Storing Data to Discontinuous Strings
+   Até agora nós usamos as instruções de /strings/ assumindo que a /string/ destino é sempre uma sequência contínua de /bytes/ na memória. Esse não é necessariamente o caso. Em
+   adição a mudar o valor em =EAX= entre execuções de =STOSB=, você pode modificar o /endereço de destino/ também. Como resultado, podemos armazenar dados em várias áreas diferentes
+   da memória dentro de um único /loop/.
+
+*** Nested Instruction Loops
+    O laço interno exibe uma linha consistindo de 32 caracteres. O laço externo divide o /display/ em 7 dessas linhas.
+
+    #+BEGIN_SRC nasm
+    .DoChr:
+        stosb
+        jcxz AllDone
+        inc al
+        dec bl
+        loopnz .DoChr
+    #+END_SRC
+
+    Mantenha em mente o que acontece cada vez que =STOSB= é usada: O caractere em =AL= é escrito na memória apontada por =EDI=, e =EDI= é incrementado em 1. Na outra extremidade
+    do laço, a instrução =LOOPNZ= decrementa =ECX= em 1 e fecha o laço.
+
+*** Jumping When ECX Goes to 0
+    A instrução especial de /branch/ =JCXZ= foi criada especificamente para laços como o que usamos em =showchar.asm=. =JCXZ= não é afetada por nenhuma das /flags/ e nem decrementa
+    nenhum registrador; ela é afetada pelo registrador =ECX=. Quando =ECX= se torna zero, =JCXZ= pula para o rótulo especificado.

@@ -113,7 +113,7 @@ ClrVid:
   mov rcx,COLS*ROWS             ; Count of chars
   rep stosb                     ; Blast characters at the buffer (by in-CPU loop)
 
-  ; Now insert EOL at evety COLS bytes
+  ; Now insert EOL at every COLS bytes
   mov rdi,VidBuff
   dec rdi                       ; Start EOL position count at VidBuff char 0
   mov rcx,ROWS
@@ -172,8 +172,8 @@ WrtLn:
 ; the character in the equate HBARCHR. The default is character
 ; 196.
 ;
-; IN      : RBX - the 1-based Y position (row #)
-;           RAX - the 1-based X position (col #)
+; IN      : RAX - the 1-based Y position (row #)
+;           RBX - the 1-based X position (col #)
 ;           RCX - the length of the bar in chars
 ; OUT     : NOTHING
 ; MODIFIES: VidBuff, DF
@@ -214,8 +214,8 @@ WrtHB:
 ; where it begins. Note that the `Show` procedure must be called
 ; after Ruler to display the ruler on the console.
 ;
-; IN      : RBX - the 1-based Y position (row #)
-;           RAX - the 1-based X position (col #)
+; IN      : RAX - the 1-based Y position (row #)
+;           RBX - the 1-based X position (col #)
 ;           RCX - the length of the ruler in chars
 ; OUT     : NOTHING
 ; MODIFIES: VidBuff
