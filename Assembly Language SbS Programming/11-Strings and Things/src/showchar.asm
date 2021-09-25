@@ -175,7 +175,7 @@ _start:
   mov bl,CHRTLEN                ; Each line will consist of 32 characters
 .DoChr:
   stosb                         ; blast character to EDI
-  jcxz AllDone                  ; When the full set is printed, quit
+  jcxz AllDone                  ; When the full set is printed (ECX = 0), quit
 
   inc al                        ; next ASCII character
   dec bl

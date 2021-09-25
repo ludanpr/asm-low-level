@@ -260,3 +260,132 @@
 *** Jumping When ECX Goes to 0
     A instrução especial de /branch/ =JCXZ= foi criada especificamente para laços como o que usamos em =showchar.asm=. =JCXZ= não é afetada por nenhuma das /flags/ e nem decrementa
     nenhum registrador; ela é afetada pelo registrador =ECX=. Quando =ECX= se torna zero, =JCXZ= pula para o rótulo especificado.
+
+*** Closing the Inner Loop
+    Após a instrução =DEC BL=, a instrução =LOOPNZ= entra em cena.
+
+    =LOOPNZ= é um pouco diferente de =LOOP=. Ambos =LOOP= e =LOOPNZ= decrementam o registrador =ECX= em 1. =LOOP= observa o estado do registrador =ECX= e fecha o laço até que =ECX=
+    tenha o valor zero. =LOOPNZ= observa tanto o estado do registrador =ECX= quanto o estado de =ZF=. (=LOOP= ignora =ZF=). =LOOPNZ= fechará o laço somente se =ECX= for diferente
+    de zero e =ZF= = 0. Em outras palavras, =LOOPNZ= fecha o laço somente se =ECX= ainda tem algo nele e a /flag/ =ZF= não está em /set/.
+
+    O que exatamente =LOOPNZ= está verificando especificamente em nosso código? Lembre-se que imediatamente antes da instrução =LOOPNZ=, nós decrementamos =BL= em 1 através da
+    instrução =DEC=. A instrução =DEC= sempre afeta =ZF=. Se o operando de =DEC= vai para o valor zero como resultado de =DEC=, =ZF= vai para o estado de /set/ (=1=). Do contrário,
+    =ZF= permanece em =0=. Então, em efeito, =LOOPNZ= está observando o estado do registrador =BL=. Até que =BL= seja decrementado para =0=, =LOOPNZ= fecha o laço (repete). Depois
+    que =BL= é decrementado para =0= (fazendo o /set/ de =ZF=), o laço interno é terminado e a execução decai pela instrução =LOOPNZ= para a próxima em sequẽncia.
+
+    E =ECX=? =LOOPNZ= de fato está observando =ECX= - mas =JCXZ= também. =JCXZ= na verdade é o que governa quando todo o laço - ambas as porções interna e externa - terminou seu
+    trabalho e deve parar. Então, enquanto é verdade que =LOOPNZ= observa =ECX=, =JCXZ= é quem cuida dessa tarefa de fato, e =JCXZ= tomará a ação necessária antes que =LOOPNZ= quando
+    =ECX= for para o valor zero. O trabalho de =LOOPNZ= portanto é decrementar =ECX=, mas observar de fato =BL=.
+
+** Command-Line Arguments and Examining the Stack
+   Quando você inicia um programa no /prompt/ de comandos do console Linux, você tem a opção de passar qualquer número razoável de argumentos depois do /pathname/ do programa executável.
+
+   Quando um de seus programas inicia a execução, quaisquer argumentos de linha de comando de entrada no programa são passados para o programa através da pilha do Linux.
+
+*** Virtual Memory in Two Chunks
+    Entender a pilha do Linux requere pelo menos um entendimento básico de memória virtual. Linux sempre usou um mecanismo de memória virtual para gerenciar a memória física em seu
+    computador. De forma simplificada, a memória virtual funciona da seguinte forma: o Linux pode separar uma região de memória em qualquer lugar do sistema de memória física de
+    seu computador, e depois dizer, "Você deve considerar o primeiro endereço desse bloco de memória =08048000h=, e realizar todos os endereçamentos de memória de acordo."
+
+    Essa é uma manobra muito útil. O seu programa pode usar livremente o bloco de memória que o Linux o disponibilizou, e assumir que ele é o único programa fazendo uso dessa
+    memória. Outros programas podem receber seus próprios blocos dessa memória "virtual".
+
+    E é aí que entra uma parte muito estranho: /Todo programa que recebe um bloco de memória pode ser dito que o seu bloco de memória inicia no endereço 08048000h/. Isso é verdade
+    mesmo em programas executando simultaneamente. Cada programa pensa que está executando em seu próprio pequeno universo de memória, e cada um pensa que seu endereço de memória
+    inicia no mesmo local.
+
+    Como isso é possível? Por trás das cortinas, o /kernel/ Linux aceita toda tentativa de endereçamento de memória feita pelo código de qualquer programa, e traduz esse endereço
+    virtual em um endereço físico de memória em algum lugar na RAM.
+
+    Quando o seu programa inicia sua execução, Linux realiza sua mágica de memória virtual e separa uma área de memória para o código e os dados de seu programa. Para sistemas Linux
+    baseados em x86, esse bloco de memória sempre inicia em =08048000h=. A partir dele, vai até o =0BFFFFFFFh= (ou algo próximo disso).
+
+    O espaço de memória virtual de um programa Linux é dividido em dois blocos. O bloco mais baixo inicia em =08048000h= e contém o código de seu programa, juntamente com os dados
+    definidos nas seções =.data= e =.bss=. Ele é no máximo tão grande quanto precisar ser, dados o código e os dados definidos.
+
+    O bloco mais alto pode ser pensado quase de forma inversa: ele inicia em memória alta e cresce para baixo em direção à memória mais baixa. As fronteiras de endereço desse bloco
+    nem sempre são as mesmas. Entretanto, a extremidade mais alta desse bloco (que é algumas vezes confusamente chamada de "/bottom of the stack/") não pode ser mais alta que
+    =0BFFFFFFFh=. Esse bloco mais alto é a pilha de seu programa.
+
+*** Anatomy of the Linux Stack
+    Quando o Linux carrega o seu programa, ele coloca várias informações na pilha antes de deixar o código do programa iniciar a execução. Essas informações incluem o caminho completo
+    do executável, quaisquer argumentos de linha de comando que foram entrados pelo usuário ao iniciar a execução do programa, e o estado atual do ambiente Linux.
+
+    O /topo da pilha/ é a localização de memória apontada por =ESP= quando o seu programa inicia a execução. O /fundo da pilha/ é o endereço mais alto no espaço de endereçamento virtual
+    que o Linux dispõe para o seu programa quando ele é carregado e executado.
+
+    O Linux constroi a pilha da memória mais alta em direção à memória mais baixa, iniciando no fundo da pilha e indo em direção à memória mais baixa a partir daí. Quando o código
+    do seu programa começa a executar de verdade, =ESP= aponta para o topo da pilha. A seguir temos uma descrição mais detalhado do que pode ser encontrado na pilha no início da execução
+    de um programa:
+
+    * Em =ESP= há um número de 32 /bits/, dando a contagem dos argumentos de
+      linha de comando presentes da pilha. /Esse valor é sempre pelo menos 1/.
+
+    * O próximo item de 32 /bits/ em direção à memória mais alta a partir de
+      =ESP= é o endereço do texto de invocação pelo qual o arquivo executável
+      foi executado.
+
+    * Se quaisquer argumentos de linha de comando foram recebidos, seus endereços
+      de 32 bits são guardados em direção à memória mais alta a partir de =ESP=,
+      com o endereço do primeiro (mais à esquerda) argumento seguido pelo endereço
+      do segundo, e assim sucessivamente.
+
+    * A lista de endereços dos argumentos de linha de comando é terminada por
+      um ponteiro nulo, que é o jargão para 32 bits de 0 binário.
+
+    * Em direção à memória mais alta a partir do ponteiro nulo começa uma lista
+      comprida de endereços de 32 bits. Cada um desses endereços aponta para
+      uma /string/ terminada por caractere nulo contendo uma das definições
+      pertencentes ao ambiente Linux.
+
+    * Ao final da lista de endereços das variáveis de ambiente Linux está outro
+      ponteiro nulo de 32 bits, e ele marca o final do "diretório" da pilha.
+
+    Argumentos de linha de comando e variáveis de ambiente são armazenados da cabeça para a cauda na memória. Cada uma é terminada por um /byte/ 0.
+
+** String Searches with SCASB
+   Uma vez que entendemos como a pilha do Linux é disposta na memória, checar aos argumentos de linha de comando é fácil. Nós temos o que se resume a uma tabela de endereços na pilha, e
+   cada endereço aponta para um argumento. A parte mais traiçoeiro é determinar quantos /bytes/ pertencem a cada argumento, de forma que possamos copiar os dados do argumento para algum
+   outro local se precisarmos, ou passá-lo para uma chamada de sistema do /kernel/ como =sys_write=. Porque cada argumento termina com um único /byte/ 0, e desafio é direto: nós devemos
+   procurar pelo 0.
+
+   O conjunto de instruções x86 implementa esse idioma de busca em laço em uma instrução de /string/ que não armazena dados (como =STOSB=) ou copia dados (como =MOVSB=) mas em vez disso
+   busca na memória um valor em particular. Essa instrução é chamada =SCASB= (/Scan String by Byte/).
+
+   O programa =showargs1.asm= primeiro desempilha o número de argumentos da pilha para =ECX=.
+
+   A instrução =REPNE SCASB= é usada para encontrar o /byte/ =0= no final de cada argumento. Configurar =SCASB= é praticamente a mesma coisa que configurar =STOSB=:
+
+   * Para buscas em direção à memória mais alta a instrução =CLD= é usada
+     para garantir que =DF= está em /clear/.
+   * O endereço do primeiro /byte/ da /string/ a ser buscada é colocado
+     em =EDI= Aqui, é o endereço de um argumento de linha de comando na
+     pilha.
+   * O valor a ser buscado é colocado em =AL=.
+   * Uma conta máxima é colocada em =ECX=. Isso é feito para evitar que
+     a busca seja realizada muito além na memória no caso do /byte/ que
+     está sendo buscado não esteja presente.
+
+   Com tudo isso configurado, =REPNE SCASB= pode ser executado. Assim como =STOSB=, =REPNE SCASB= cria um laço dentro da CPU. Em cada passagem do laço, o /byte/ em =[EDI]= é comparado
+   com o valor em =AL=. Se os valores são iguais, o laço é satisfeito e =REPNE SCASB= termina a execução. Se os valores não são iguais, =EDI= é incrementado em 1, =ECX= é decrementado em
+   1, e o laço continua com outro teste do /byte/ em =[EDI]=.
+
+   Quando =REPNE SCASB= encontra o caractere em =AL= e termina, =EDI= apontará para o /byte/ após a posição do caractere encontrado na /string/ buscada. Para acessar o caractere encontrado,
+   devemos subtrair 1 de =EDI=.
+
+*** REPNE vs. REPE
+    A instrução =SCASB= é um pouco diferente de =STOSB= e =MOVSB= por ser uma instrução condicional de /string/. =SCASB= realiza um teste separado toda vez que é executada, e todo teste
+    pode terminar de duas formas. É por isso que nós não usamos o prefixo incondicional =REP= com =SCASB=, mas sim ou o prefixo =REPNE= ou o prefixo =REPE=.
+
+    Quando nós estamos buscando por um /byte/ na /string/ de busca que corresponde ao /byte/ em =AL=, nós usamos o prefixo =REPNE=, como fizemos em =showargs1=. Quando nós estamos procurando
+    por um /byte/ na /string/ de busca que não corresponda ao /byte/ em =AL=, nós usamos =REPE=. O prefixo indica a condição em que a instrução =SCASB= deve continuar executando, e não
+    quando ela deve parar.
+
+    Toda vez que =SCASB= é executada, ela faz uma comparação, e essa comparação ou faz o /set/ ou /clear/ de =ZF=. =REPNE= terminará a instrução quando sua comparação faz o /set/ de =ZF=.
+    =REPE= terminará a instrução quando sua comparação fizer o /clear/ de =ZF=. Entretanto, para ter certeza absoluta de pegarmos o resultado de "falha na busca", devemos testar =ZF=
+    imediatamente após o término da instrução =SCASB=.
+
+    Para =REPNE SCASB=: Use =JNZ=. (Faz o /jump/ se =ZF= não está em /set/)
+    Para =REPE SCASB=: Use =JZ=. (Faz o /jump/ se =ZF= está em /set/)
+
+    
